@@ -63,5 +63,13 @@
 - [x] TabView: Tunnel | Rules
 - [ ] **Ручная UI-проверка:** редактирование, Apply без перезапуска, проверка реальной маршрутизации
 
-## Этап 5 — мониторинг
-не начато
+## Этап 5 — мониторинг ✅
+
+- [x] `MenuBarController`: NSStatusItem с цветовой индикацией (gray/yellow/green/red), меню Connect/Disconnect/Show Window/Quit
+- [x] `ClashAPI`: `/version` REST + `/traffic` WebSocket с авто-реконнектом
+- [x] `Telemetry`: текущий внешний IP (api.ipify.org → fallback ifconfig.me), аптайм, RX/TX bps. Стартует/останавливается по статусу backend
+- [x] Telemetry-полоса в TunnelView: External IP / Uptime / Down / Up + кнопка refresh IP
+- [x] Логи (вкладка-заместитель в TunnelView) tail-style с автообновлением — уже было в этапе 2
+- [x] Приложение остаётся жить в menu bar после закрытия окна (`applicationShouldTerminateAfterLastWindowClosed: false`)
+- [ ] **Не делал:** /connections-вкладка — план явно говорит «можно опустить на старте»
+- [ ] **Ручная UI-проверка:** menubar-иконка меняет цвет, IP реально определяется через VPN, /traffic стрим работает

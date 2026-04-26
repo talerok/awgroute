@@ -1,18 +1,32 @@
 import AppKit
+import Combine
 
-/// Глобальная ссылка на backend, чтобы можно было остановить его при выходе из приложения.
-/// SwiftUI App не даёт удобного способа поймать NSApplication.willTerminateNotification
-/// без NSApplicationDelegate, поэтому делаем минимальный adapter.
+/// Минимальный adapter для:
+///   1) cleanup amnezia-box при выходе из приложения (NSApplicationDelegate);
+///   2) bind телеметрии к статусу backend.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    static let shared = AppDelegate()
     weak var backend: BackendController?
+    private var telemetryBindings: Set<AnyCancellable> = []
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Синхронно — иначе процесс может остаться висеть.
         backend?.stopBlocking()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
+    /// Не закрывать приложение при закрытии окна — пусть живёт в menu bar.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    @MainActor
+    func bindTelemetry(backend: BackendController, telemetry: Telemetry) {
+        telemetryBindings.removeAll()
+        backend.$status
+            .receive(on: RunLoop.main)
+            .sink { status in
+                switch status {
+                case .running: telemetry.start()
+                case .stopped, .error: telemetry.stop()
+                default: break
+                }
+            }
+            .store(in: &telemetryBindings)
     }
 }

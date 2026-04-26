@@ -8,6 +8,7 @@ struct TunnelView: View {
     @EnvironmentObject var backend: BackendController
     @EnvironmentObject var profiles: ProfileStore
     @EnvironmentObject var rules: RulesStore
+    @EnvironmentObject var telemetry: Telemetry
     @State private var logLines: [String] = []
     @State private var logSubscribed = false
     @State private var importError: String?
@@ -112,6 +113,10 @@ struct TunnelView: View {
             }
             .padding(.bottom, 4)
 
+            if case .running = backend.status {
+                telemetryStrip
+            }
+
             GroupBox("Interface") {
                 VStack(alignment: .leading, spacing: 4) {
                     field("Address", profile.config.interface.address.joined(separator: ", "))
@@ -161,6 +166,31 @@ struct TunnelView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var telemetryStrip: some View {
+        HStack(spacing: 24) {
+            telemetryItem("External IP", telemetry.externalIP ?? "…")
+            telemetryItem("Uptime",      Telemetry.formatUptime(telemetry.uptime))
+            telemetryItem("Down",        Telemetry.formatBytesPerSec(telemetry.downBps))
+            telemetryItem("Up",          Telemetry.formatBytesPerSec(telemetry.upBps))
+            Spacer()
+            Button {
+                telemetry.refreshExternalIP()
+            } label: { Image(systemName: "arrow.clockwise") }
+            .buttonStyle(.borderless)
+            .help("Refresh external IP")
+        }
+        .padding(8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func telemetryItem(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.system(.callout, design: .monospaced))
+        }
     }
 
     private func field(_ label: String, _ value: String) -> some View {
