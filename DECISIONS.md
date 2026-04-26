@@ -115,4 +115,40 @@
 
 ---
 
+## 2026-04-26 — Xcode-проект через `xcodegen`
+
+**Контекст:** `.xcodeproj` — бинарный плотный формат, его неудобно править руками и держать в git.
+
+**Решение:** проект описан в `app/project.yml` для `xcodegen`. Сгенерированный `app/AwgRoute.xcodeproj` под `.gitignore` (точнее — будет под gitignore, см. правку). Команда: `cd app && xcodegen`.
+
+**Альтернативы:** tuist (мощнее, но overkill); чистый Swift Package executable (теряем .app bundle и Info.plist для Apple Event entitlements).
+
+**Зависимости:** `brew install xcodegen` (уже стоит).
+
+---
+
+## 2026-04-26 — Эскалация привилегий: NSAppleScript «with administrator privileges» (Вариант A из PLAN.md этап 2)
+
+**Контекст:** TUN на macOS требует root. Helper Tool / SMAppService — overkill для личного приложения.
+
+**Решение:** `BackendController` запускает amnezia-box через `NSAppleScript` с `do shell script "..." with administrator privileges`. Особенности:
+- Один запуск — один родной macOS prompt пароля.
+- Авторизация кэшируется ~5 минут на одном AppleScript-сеансе.
+- `nohup ... &` + redirect в файл + `echo $! > /tmp/awgroute-amnezia-box.pid` — backend живёт независимо от AppleScript-вызова.
+- Stop через тот же механизм: `kill -TERM` → ждать 5 сек → `kill -KILL`.
+
+**Альтернатива** (Вариант B): NOPASSWD sudoers. Оставлено пользователю — задокументирую в README.
+
+**Stop при выходе GUI:** синхронный `NSAppleScript` в `applicationWillTerminate` (вне async runtime). Cached auth обычно срабатывает без prompt'а.
+
+---
+
+## 2026-04-26 — Подцепление к работающему backend при рестарте GUI (сверх PLAN.md)
+
+**Контекст:** PLAN требует «cleanup при выходе GUI». Но обратный сценарий — GUI крашнулся / закрылся, backend остался жить — тоже встречается.
+
+**Решение:** при инициализации `BackendController` читает `/tmp/awgroute-amnezia-box.pid` и проверяет процесс через `kill(pid, 0)`. Если жив — статус сразу `.running(pid:)`. Это позволяет рестартовать GUI без потери туннеля и не требует ничего от пользователя.
+
+---
+
 <!-- Добавлять новые записи сверху, под этой строкой -->

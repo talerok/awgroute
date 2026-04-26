@@ -21,8 +21,18 @@
 - [x] 16/16 unit-тестов зелёные
 - [x] End-to-end: `awgconfgen` на всех 6 фикстурах → `amnezia-box check` exit 0
 
-## Этап 2 — BackendController
-не начато
+## Этап 2 — BackendController ✅ (real-server smoke-test остаётся ручным)
+
+- [x] Xcode-проект `app/AwgRoute.xcodeproj` (генерится `xcodegen`-ом из `app/project.yml`)
+- [x] SwiftUI scene, NSApplicationDelegateAdaptor для cleanup
+- [x] `BackendController` с `start(configPath:)` / `stop()` / `status` / `logs` (AsyncStream)
+- [x] Запуск через NSAppleScript «with administrator privileges» (Вариант A)
+- [x] Сохранение PID в `/tmp/awgroute-amnezia-box.pid`, подцепление к живому процессу при перезапуске GUI
+- [x] Логи в `~/Library/Logs/AwgRoute/amnezia-box.log`, ротация по размеру (>5 МБ → `.log.1`)
+- [x] SIGTERM → 5 сек → SIGKILL
+- [x] `applicationWillTerminate` → синхронный stop
+- [x] Сборка `xcodebuild` зелёная, .app запускается без runtime-ошибок
+- [ ] **Ручная проверка (требует UI и реального сервера):** Start/Stop с настоящим `.conf`, переживание перезапуска GUI
 
 ## Этап 3 — GUI: профили
 не начато

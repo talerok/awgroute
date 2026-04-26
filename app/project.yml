@@ -1,0 +1,47 @@
+name: AwgRoute
+options:
+  bundleIdPrefix: dev.awgroute
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"          # ad-hoc
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+    ENABLE_HARDENED_RUNTIME: NO
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+packages:
+  AwgRouteShared:
+    path: ../shared
+
+targets:
+  AwgRoute:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: AwgRoute
+        CFBundleDisplayName: AwgRoute
+        LSMinimumSystemVersion: "13.0"
+        LSUIElement: false
+        NSHumanReadableCopyright: ""
+        NSAppleEventsUsageDescription: "AwgRoute needs to run amnezia-box with administrator privileges to bring up the VPN tunnel."
+    dependencies:
+      - package: AwgRouteShared
+        product: AwgConfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.awgroute.app
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
