@@ -2,8 +2,6 @@
 
 Личный macOS-клиент для AmneziaWG с продвинутым роутингом (домены, GeoIP, rule-sets) поверх AWG-обфускации. Использует [`amnezia-box`](https://github.com/hoaxisr/amnezia-box) (форк sing-box) как backend.
 
-Архитектурные решения — [DECISIONS.md](DECISIONS.md).
-
 ## Требования
 
 - macOS 13+ (Apple Silicon — основная цель)
@@ -71,6 +69,26 @@ AwgRoute.app
     ├── Telemetry         (внешний IP, uptime, трафик через Clash API)
     └── MenuBarController (статус и быстрые действия в menu bar)
 ```
+
+## Правила роутинга
+
+Вкладка **Rules** редактирует `~/Library/Application Support/AwgRoute/rules.json`.
+
+Файл — это содержимое секции `route` конфига amnezia-box (не весь конфиг):
+
+```jsonc
+{
+  "rules": [
+    { "domain_suffix": ["example.com"], "outbound": "direct" },
+    { "geoip": ["ru"], "outbound": "direct" }
+  ],
+  "final": "vpn"
+}
+```
+
+Генератор автоматически добавляет `sniff` и `hijack-dns` в начало правил и выставляет `default_domain_resolver`.
+
+> **Важно:** sing-box отвергает неизвестные поля — поле `comment` в правилах сломает конфиг.
 
 ## Безопасность
 
