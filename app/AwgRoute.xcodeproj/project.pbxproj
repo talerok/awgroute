@@ -10,13 +10,17 @@
 		02B478E6DDB329C8F4017FBF /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DD583D20A0B7B652EC23EF /* KeychainStore.swift */; };
 		2642E0821FF95F7A68FB84AE /* LogTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DA59CD7B141DB2E806E028 /* LogTailer.swift */; };
 		28CCDE01B79369B32DBE77A0 /* Paths.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6A48714ACDA57AC440B7DAF /* Paths.swift */; };
+		3D2469C94D75A28E5D02E11D /* RulesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B67472933AC35B5A2102E0A /* RulesStore.swift */; };
 		3E8EAAFF5A3107303A879ACF /* AwgConfig in Frameworks */ = {isa = PBXBuildFile; productRef = 5E3D13F76BE00333B48351BE /* AwgConfig */; };
 		761E7D97AA6CB0B7DAFE8310 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85A7C44ED8D79ADE6F3EF56D /* Profile.swift */; };
+		82609854A98696A072CB69AD /* TunnelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45FDF32327BF0B83951AD87D /* TunnelView.swift */; };
 		A05385EB5CBBC969FE8B551C /* LogBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F5E13AF5555932F5FDD4D8 /* LogBuffer.swift */; };
 		AE5180EAFF445D6385F28499 /* BackendController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2B5C329588D41A57595CC72 /* BackendController.swift */; };
 		B0C6F26CB35DAB7A75CF661F /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAC43596EA57BA06E23159C /* ProfileStore.swift */; };
+		C426688D4854CD213B5C49DC /* RulesEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 458FA1FA042E0E6F25A3EAFB /* RulesEditorView.swift */; };
 		C4AEF6195192B0EDBE46139A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C26EF3E04B37E755AD6ADDA /* AppDelegate.swift */; };
 		C59CD3BD65E882C9CB096498 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17097511C47892D13BEE07A4 /* ContentView.swift */; };
+		D90779A3AFEF20E5255AE646 /* rule-presets in Resources */ = {isa = PBXBuildFile; fileRef = 99189E2B2D00D9BE122BB381 /* rule-presets */; };
 		E3C414824CB9940E6A26DE84 /* AwgRouteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66063E9976E32C86E7D66907 /* AwgRouteApp.swift */; };
 		E548324AAEC89A475890C498 /* ConnectionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A09C6C4BAFC5FF5A418086 /* ConnectionCoordinator.swift */; };
 /* End PBXBuildFile section */
@@ -25,12 +29,16 @@
 		029F4EADD2755387F175FBBF /* AwgRoute.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AwgRoute.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		152B1B3CCB2BC9E42A292242 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		17097511C47892D13BEE07A4 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		458FA1FA042E0E6F25A3EAFB /* RulesEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulesEditorView.swift; sourceTree = "<group>"; };
+		45FDF32327BF0B83951AD87D /* TunnelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TunnelView.swift; sourceTree = "<group>"; };
 		5AAC43596EA57BA06E23159C /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		66063E9976E32C86E7D66907 /* AwgRouteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AwgRouteApp.swift; sourceTree = "<group>"; };
 		80DD583D20A0B7B652EC23EF /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		85A7C44ED8D79ADE6F3EF56D /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		87F5E13AF5555932F5FDD4D8 /* LogBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogBuffer.swift; sourceTree = "<group>"; };
 		8C26EF3E04B37E755AD6ADDA /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		99189E2B2D00D9BE122BB381 /* rule-presets */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "rule-presets"; path = "../resources/rule-presets"; sourceTree = SOURCE_ROOT; };
+		9B67472933AC35B5A2102E0A /* RulesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RulesStore.swift; sourceTree = "<group>"; };
 		B5DA59CD7B141DB2E806E028 /* LogTailer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogTailer.swift; sourceTree = "<group>"; };
 		C2B5C329588D41A57595CC72 /* BackendController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendController.swift; sourceTree = "<group>"; };
 		D6A48714ACDA57AC440B7DAF /* Paths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Paths.swift; sourceTree = "<group>"; };
@@ -63,8 +71,18 @@
 			children = (
 				05ABFEFBFA7CBE8087E5BCE5 /* Packages */,
 				7307C50D509C5AFD1B93D3F5 /* Sources */,
+				5F738E40CCDCA7778C94DB9D /* vpn-client */,
 				7F5674927DC74D892A3E0C27 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		5F738E40CCDCA7778C94DB9D /* vpn-client */ = {
+			isa = PBXGroup;
+			children = (
+				DB0A1624423281F8125515B7 /* resources */,
+			);
+			name = "vpn-client";
+			path = ..;
 			sourceTree = "<group>";
 		};
 		7307C50D509C5AFD1B93D3F5 /* Sources */ = {
@@ -82,6 +100,9 @@
 				D6A48714ACDA57AC440B7DAF /* Paths.swift */,
 				85A7C44ED8D79ADE6F3EF56D /* Profile.swift */,
 				5AAC43596EA57BA06E23159C /* ProfileStore.swift */,
+				458FA1FA042E0E6F25A3EAFB /* RulesEditorView.swift */,
+				9B67472933AC35B5A2102E0A /* RulesStore.swift */,
+				45FDF32327BF0B83951AD87D /* TunnelView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -94,6 +115,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		DB0A1624423281F8125515B7 /* resources */ = {
+			isa = PBXGroup;
+			children = (
+				99189E2B2D00D9BE122BB381 /* rule-presets */,
+			);
+			path = resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -102,6 +131,7 @@
 			buildConfigurationList = F5779FC7C24804D71F2D4E9C /* Build configuration list for PBXNativeTarget "AwgRoute" */;
 			buildPhases = (
 				165DFEDFB3300BDC5190E124 /* Sources */,
+				00270AC2BF6792525FF4BAEC /* Resources */,
 				B7A17AAEE98D35F172576405 /* Frameworks */,
 			);
 			buildRules = (
@@ -153,6 +183,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		00270AC2BF6792525FF4BAEC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D90779A3AFEF20E5255AE646 /* rule-presets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		165DFEDFB3300BDC5190E124 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -169,6 +210,9 @@
 				28CCDE01B79369B32DBE77A0 /* Paths.swift in Sources */,
 				761E7D97AA6CB0B7DAFE8310 /* Profile.swift in Sources */,
 				B0C6F26CB35DAB7A75CF661F /* ProfileStore.swift in Sources */,
+				C426688D4854CD213B5C49DC /* RulesEditorView.swift in Sources */,
+				3D2469C94D75A28E5D02E11D /* RulesStore.swift in Sources */,
+				82609854A98696A072CB69AD /* TunnelView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

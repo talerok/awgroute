@@ -27,6 +27,9 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - path: Sources
+      - path: ../resources/rule-presets
+        type: folder
+        buildPhase: resources
     info:
       path: Sources/Info.plist
       properties:

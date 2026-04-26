@@ -49,8 +49,19 @@
 - [x] AwgConfig теперь Codable, 16/16 тестов зелёные, .app собирается и запускается без runtime-ошибок
 - [ ] **Ручная UI-проверка:** импорт реального .conf, Keychain Access показывает айтемы, переключение между 2+ профилями
 
-## Этап 4 — GUI: редактор правил
-не начато
+## Этап 4 — GUI: редактор правил ✅
+
+- [x] Глобальный scope правил, Вариант A — только секция `route` (см. `DECISIONS.md`)
+- [x] `RulesStore`: load/save `~/Library/Application Support/AwgRoute/rules.json`, format, revert, real-time validation
+- [x] `RulesEditorView`: TextEditor с monospaced шрифтом, Apply / Format / Revert / Insert template
+- [x] Live-валидация: ✓ Valid JSON или ✗ ошибка с описанием
+- [x] 4 пресета: Empty, RU routing, Ad blocking, Full Clash-style — лежат в `resources/rule-presets/`, бандлятся в .app
+- [x] `ConnectionCoordinator` объединяет конфиг профиля и пользовательские правила (через `AwgJSONGenerator.fullConfigJSON(userRoute:)`)
+- [x] Apply: сохранить → если backend запущен — graceful restart (`stop` → `connect`)
+- [x] Сломанный JSON блокирует Apply (button disabled)
+- [x] **End-to-end проверено:** все 4 пресета через `awgconfgen --rules` дают конфиг, который `amnezia-box check` принимает без ошибок
+- [x] TabView: Tunnel | Rules
+- [ ] **Ручная UI-проверка:** редактирование, Apply без перезапуска, проверка реальной маршрутизации
 
 ## Этап 5 — мониторинг
 не начато

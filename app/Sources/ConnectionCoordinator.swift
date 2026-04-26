@@ -8,6 +8,7 @@ import AwgConfig
 struct ConnectionCoordinator {
     let profiles: ProfileStore
     let backend: BackendController
+    let rules: RulesStore?
 
     func connect() async {
         guard let profile = profiles.activeProfile else {
@@ -18,16 +19,19 @@ struct ConnectionCoordinator {
             let materialized = try profiles.materializedConfig(for: profile)
             var opts = AwgJSONGenerator.Options()
             opts.endpointTag = "vpn"        // зарезервированное имя; rules.json пользователя видит "vpn"
-            // Если в профиле есть DNS — прокинем как remote
             if let firstDNS = materialized.interface.dns.first {
                 opts.remoteDNSServer = firstDNS
             }
-            let json = try AwgJSONGenerator.fullConfigJSON(from: materialized, options: opts)
+            // Если есть валидные пользовательские правила — взять их, иначе минимальный route.
+            let userRoute: [String: Any]? = (try? rules?.parsed())
+            let json = try AwgJSONGenerator.fullConfigJSON(
+                from: materialized,
+                options: opts,
+                userRoute: userRoute
+            )
             try json.write(to: Paths.activeConfig, options: .atomic)
             await backend.start(configPath: Paths.activeConfig.path)
         } catch {
-            // BackendController.status не выставим напрямую (private set), —
-            // выводим в лог, чтобы не молчать.
             NSLog("AwgRoute: connect failed: \(error)")
         }
     }

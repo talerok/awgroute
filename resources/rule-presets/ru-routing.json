@@ -1,0 +1,25 @@
+{
+  "rules": [
+    { "action": "sniff" },
+    { "protocol": "dns", "action": "hijack-dns" },
+    { "ip_is_private": true, "outbound": "direct" },
+    { "rule_set": ["geoip-ru", "geosite-ru"], "outbound": "direct" }
+  ],
+  "rule_set": [
+    {
+      "type": "remote",
+      "tag": "geoip-ru",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geoip/raw/rule-set/geoip-ru.srs",
+      "download_detour": "vpn"
+    },
+    {
+      "type": "remote",
+      "tag": "geosite-ru",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-ru.srs",
+      "download_detour": "vpn"
+    }
+  ],
+  "final": "vpn"
+}

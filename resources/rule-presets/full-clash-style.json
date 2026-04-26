@@ -1,0 +1,37 @@
+{
+  "rules": [
+    { "action": "sniff" },
+    { "protocol": "dns", "action": "hijack-dns" },
+    { "ip_is_private": true, "outbound": "direct" },
+    { "rule_set": ["geosite-ads"], "action": "reject" },
+    { "rule_set": ["geoip-ru", "geosite-ru"], "outbound": "direct" },
+    { "rule_set": ["geosite-apple", "geosite-microsoft", "geosite-github"], "outbound": "direct" }
+  ],
+  "rule_set": [
+    { "type": "remote", "tag": "geoip-ru",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geoip/raw/rule-set/geoip-ru.srs",
+      "download_detour": "vpn" },
+    { "type": "remote", "tag": "geosite-ru",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-ru.srs",
+      "download_detour": "vpn" },
+    { "type": "remote", "tag": "geosite-ads",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-category-ads-all.srs",
+      "download_detour": "vpn" },
+    { "type": "remote", "tag": "geosite-apple",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-apple.srs",
+      "download_detour": "vpn" },
+    { "type": "remote", "tag": "geosite-microsoft",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-microsoft.srs",
+      "download_detour": "vpn" },
+    { "type": "remote", "tag": "geosite-github",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-github.srs",
+      "download_detour": "vpn" }
+  ],
+  "final": "vpn"
+}

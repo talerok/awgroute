@@ -2,23 +2,30 @@ import Foundation
 import AwgConfig
 
 // Использование:
-//   awgconfgen <file.conf>                 → полный JSON-конфиг amnezia-box на stdout
-//   awgconfgen --endpoint-only <file.conf> → только endpoint-объект
+//   awgconfgen <file.conf>                            → полный JSON-конфиг amnezia-box на stdout
+//   awgconfgen --endpoint-only <file.conf>            → только endpoint-объект
+//   awgconfgen --rules <rules.json> <file.conf>       → полный конфиг с пользовательской route-секцией
 //
 // Удобно для:
 //   swift run awgconfgen tests/conf-samples/example.conf > /tmp/cfg.json
 //   backend/amnezia-box check -c /tmp/cfg.json
 
 func usageAndExit() -> Never {
-    FileHandle.standardError.write(Data("usage: awgconfgen [--endpoint-only] <file.conf>\n".utf8))
+    FileHandle.standardError.write(Data("usage: awgconfgen [--endpoint-only] [--rules <rules.json>] <file.conf>\n".utf8))
     exit(2)
 }
 
 var args = Array(CommandLine.arguments.dropFirst())
 var endpointOnly = false
+var rulesPath: String? = nil
 if let i = args.firstIndex(of: "--endpoint-only") {
     endpointOnly = true
     args.remove(at: i)
+}
+if let i = args.firstIndex(of: "--rules") {
+    args.remove(at: i)
+    guard i < args.count else { usageAndExit() }
+    rulesPath = args.remove(at: i)
 }
 guard args.count == 1 else { usageAndExit() }
 
@@ -36,9 +43,14 @@ do {
     for w in cfg.warnings {
         FileHandle.standardError.write(Data("warning: \(w)\n".utf8))
     }
+    var userRoute: [String: Any]? = nil
+    if let p = rulesPath {
+        let rd = try Data(contentsOf: URL(fileURLWithPath: p))
+        userRoute = try JSONSerialization.jsonObject(with: rd) as? [String: Any]
+    }
     let json = endpointOnly
         ? try AwgJSONGenerator.endpointJSON(from: cfg)
-        : try AwgJSONGenerator.fullConfigJSON(from: cfg)
+        : try AwgJSONGenerator.fullConfigJSON(from: cfg, userRoute: userRoute)
     FileHandle.standardOutput.write(json)
     FileHandle.standardOutput.write(Data("\n".utf8))
 } catch {

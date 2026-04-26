@@ -1,0 +1,18 @@
+{
+  "rules": [
+    { "action": "sniff" },
+    { "protocol": "dns", "action": "hijack-dns" },
+    { "ip_is_private": true, "outbound": "direct" },
+    { "rule_set": ["geosite-category-ads-all"], "action": "reject" }
+  ],
+  "rule_set": [
+    {
+      "type": "remote",
+      "tag": "geosite-category-ads-all",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-category-ads-all.srs",
+      "download_detour": "vpn"
+    }
+  ],
+  "final": "vpn"
+}
