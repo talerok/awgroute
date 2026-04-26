@@ -19,25 +19,56 @@ struct ConnectionCoordinator {
             let materialized = try profiles.materializedConfig(for: profile)
             var opts = AwgJSONGenerator.Options()
             opts.endpointTag = "vpn"        // зарезервированное имя; rules.json пользователя видит "vpn"
-            if let firstDNS = materialized.interface.dns.first {
-                opts.remoteDNSServer = firstDNS
-            }
-            // Если есть валидные пользовательские правила — взять их, иначе минимальный route.
-            let userRoute: [String: Any]? = (try? rules?.parsed())
+
+            // Умный дефолт DNS: пропускаем CGNAT-адреса (100.64.0.0/10) — это
+            // внутренние DNS VPN-сервера, они часто тормозят на части доменов.
+            // Берём первый публичный из .conf, fallback на 1.1.1.1.
+            opts.remoteDNSServer = materialized.interface.dns
+                .first { !Self.isCGNAT($0) } ?? "1.1.1.1"
+
+            // Smart-режим: наш sing-box TUN inbound + AWG endpoint, с пользовательскими
+            // route-правилами. Native TUN режим (`useIntegratedTun=true`) оставлен в
+            // генераторе для возможной отладки, но в UI переключатель убран — он плохо
+            // снимает auto_route на macOS, после disconnect ломается системная сеть.
+            //
+            // Пользовательские правила (Variant A) могут содержать опциональную секцию
+            // `dns` (Variant B) — она перекроет дефолтную DNS-конфигурацию генератора.
+            let parsedRules = try? rules?.parsed()
+            let userRoute: [String: Any]? = parsedRules
+            let userDNS: [String: Any]? = parsedRules?["dns"] as? [String: Any]
             let json = try AwgJSONGenerator.fullConfigJSON(
                 from: materialized,
                 options: opts,
-                userRoute: userRoute
+                userRoute: userRoute,
+                userDNS: userDNS
             )
+            // Mode 600: конфиг содержит распакованный AWG private key. Только текущий user.
             try json.write(to: Paths.activeConfig, options: .atomic)
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: Paths.activeConfig.path
+            )
             await backend.start(configPath: Paths.activeConfig.path)
         } catch {
-            NSLog("AwgRoute: connect failed: \(error)")
+            // Без этого пользователь жмёт Connect и думает что приложение зависло.
+            backend.reportError("connect failed: \(error.localizedDescription)")
         }
+    }
+
+    /// `100.64.0.0/10` — CGNAT (Carrier-Grade NAT), типично используется
+    /// VPN-серверами для внутренних адресов (включая internal DNS).
+    private static func isCGNAT(_ ip: String) -> Bool {
+        let parts = ip.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return false }
+        return parts[0] == 100 && parts[1] >= 64 && parts[1] <= 127
     }
 
     func disconnect() async {
         await backend.stop()
+        // Удалить рантайм-конфиг с распакованным private key.
+        // Файл существует только пока backend работает (amnezia-box читает его при старте,
+        // не следит за изменениями). Оставлять после disconnect нет причин.
+        try? FileManager.default.removeItem(at: Paths.activeConfig)
     }
 
     /// Полная переактивация: stop → connect (для случая, когда пользователь

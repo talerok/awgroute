@@ -3,7 +3,7 @@
     { "action": "sniff" },
     { "protocol": "dns", "action": "hijack-dns" },
     { "ip_is_private": true, "outbound": "direct" },
-    { "rule_set": ["geoip-ru", "geosite-ru"], "outbound": "direct" }
+    { "rule_set": ["geoip-ru", "geosite-yandex", "geosite-mailru", "geosite-vk"], "outbound": "direct" }
   ],
   "rule_set": [
     {
@@ -15,9 +15,23 @@
     },
     {
       "type": "remote",
-      "tag": "geosite-ru",
+      "tag": "geosite-yandex",
       "format": "binary",
-      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-ru.srs",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-yandex.srs",
+      "download_detour": "vpn"
+    },
+    {
+      "type": "remote",
+      "tag": "geosite-mailru",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-mailru.srs",
+      "download_detour": "vpn"
+    },
+    {
+      "type": "remote",
+      "tag": "geosite-vk",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-vk.srs",
       "download_detour": "vpn"
     }
   ],

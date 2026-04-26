@@ -3,7 +3,12 @@ import Security
 
 /// Очень тонкая обёртка над Security.framework для хранения секретов AwgRoute.
 /// `kSecClassGenericPassword`, `kSecAttrService = "dev.awgroute.profile-private-key"`,
-/// доступ — `kSecAttrAccessibleAfterFirstUnlock`.
+/// доступ — `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`:
+///   - `WhenUnlocked`: ключ читается только когда диск разблокирован (не сразу
+///     после ребута до login'а — а только когда пользователь активно вошёл).
+///   - `ThisDeviceOnly`: блокирует попадание секрета в iCloud Keychain backup.
+///     AWG private key device-bound, синхронизировать его на другие устройства
+///     бессмысленно и опасно.
 enum KeychainStore {
 
     static let serviceName = "dev.awgroute.profile-private-key"
@@ -31,7 +36,10 @@ enum KeychainStore {
 
         var addQuery = delQuery
         addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        // `kSecAttrSynchronizable: false` — повторно гарантируем no iCloud sync
+        // (default уже false, но явная защита от случайного переключения).
+        addQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         guard status == errSecSuccess else { throw Error.osStatus(status, op: "add") }
     }

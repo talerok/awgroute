@@ -18,6 +18,7 @@ func usageAndExit() -> Never {
 var args = Array(CommandLine.arguments.dropFirst())
 var endpointOnly = false
 var rulesPath: String? = nil
+var nativeTun = false
 if let i = args.firstIndex(of: "--endpoint-only") {
     endpointOnly = true
     args.remove(at: i)
@@ -26,6 +27,10 @@ if let i = args.firstIndex(of: "--rules") {
     args.remove(at: i)
     guard i < args.count else { usageAndExit() }
     rulesPath = args.remove(at: i)
+}
+if let i = args.firstIndex(of: "--native-tun") {
+    nativeTun = true
+    args.remove(at: i)
 }
 guard args.count == 1 else { usageAndExit() }
 
@@ -48,9 +53,11 @@ do {
         let rd = try Data(contentsOf: URL(fileURLWithPath: p))
         userRoute = try JSONSerialization.jsonObject(with: rd) as? [String: Any]
     }
+    var opts = AwgJSONGenerator.Options()
+    opts.useNativeTunMode = nativeTun
     let json = endpointOnly
-        ? try AwgJSONGenerator.endpointJSON(from: cfg)
-        : try AwgJSONGenerator.fullConfigJSON(from: cfg, userRoute: userRoute)
+        ? try AwgJSONGenerator.endpointJSON(from: cfg, options: opts)
+        : try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts, userRoute: userRoute)
     FileHandle.standardOutput.write(json)
     FileHandle.standardOutput.write(Data("\n".utf8))
 } catch {

@@ -21,7 +21,8 @@ final class Telemetry: ObservableObject {
         externalIP = nil
         startUptimeTimer()
         startTrafficStream()
-        refreshExternalIP()
+        // Авто-обновление: ждём пока туннель полностью поднимется + DNS прогреется.
+        refreshExternalIP(initialDelay: 4)
     }
 
     func stop() {
@@ -38,9 +39,11 @@ final class Telemetry: ObservableObject {
         uptimeTimer?.cancel()
         let start = connectedAt ?? Date()
         uptimeTimer = Task { [weak self] in
+            // 1 Hz: UI отображает уптайм с точностью до секунды,
+            // частить SwiftUI re-render'ами нет смысла.
             while !Task.isCancelled {
                 self?.uptime = Date().timeIntervalSince(start)
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }
@@ -56,15 +59,19 @@ final class Telemetry: ObservableObject {
         }
     }
 
-    func refreshExternalIP() {
+    /// `initialDelay` > 0 — для автозапуска после connect (даём DNS прогреться).
+    /// Кнопка Refresh в UI вызывает без задержки.
+    func refreshExternalIP(initialDelay: TimeInterval = 0) {
         ipTask?.cancel()
         ipTask = Task { [weak self] in
-            // 5 секунд ждём пока туннель полностью поднимется + DNS прогреется
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if initialDelay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(initialDelay * 1_000_000_000))
+            }
             for url in ["https://api.ipify.org", "https://ifconfig.me/ip"] {
                 guard let u = URL(string: url) else { continue }
                 var req = URLRequest(url: u)
                 req.timeoutInterval = 10
+                req.cachePolicy = .reloadIgnoringLocalCacheData
                 if let (data, _) = try? await URLSession.shared.data(for: req),
                    let ip = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !ip.isEmpty

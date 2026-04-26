@@ -2,6 +2,7 @@
 backend/amnezia-box
 backend/.cache/
 backend/src/
+dist/
 
 # Real configs/keys — never commit
 *.real.conf

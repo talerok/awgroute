@@ -89,16 +89,15 @@ final class RulesStore: ObservableObject {
     }
 
     private static func bundledPresetText(named name: String) -> String? {
-        // Bundle.main для запущенного .app. Для dev-сборки .app содержит presets как resource.
+        // Bundle.main для запущенного .app — пресеты подгружены через project.yml
+        // как resources folder, лежат либо в подпапке rule-presets, либо в корне Resources.
         if let url = Bundle.main.url(forResource: name, withExtension: "json", subdirectory: "rule-presets")
             ?? Bundle.main.url(forResource: name, withExtension: "json"),
            let data = try? Data(contentsOf: url),
            let s = String(data: data, encoding: .utf8) {
             return s
         }
-        // Dev-fallback: репозиторий
-        let repo = "/Users/artem/Documents/git/vpn-client/resources/rule-presets/\(name).json"
-        return try? String(contentsOfFile: repo, encoding: .utf8)
+        return nil
     }
 
     static let defaultEmptyTemplate: String =

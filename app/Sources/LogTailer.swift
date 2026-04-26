@@ -11,7 +11,10 @@ enum LogTailer {
         let fm = FileManager.default
         var handle: FileHandle? = nil
         var lastInode: UInt64 = 0
-        var pendingPartial = ""
+        // Накопитель сырых байт — UTF-8 multibyte char может быть разрезан между
+        // двумя read'ами (или между chunk'ами лога). Нельзя декодировать сразу
+        // в String до того как пришёл terminator (\n) — иначе теряем хвост.
+        var pending = Data()
 
         defer { try? handle?.close() }
 
@@ -22,6 +25,7 @@ enum LogTailer {
             if handle == nil || inode != lastInode {
                 try? handle?.close()
                 handle = nil
+                pending.removeAll(keepingCapacity: true)
                 if let h = try? FileHandle(forReadingFrom: url) {
                     handle = h
                     lastInode = inode
@@ -35,13 +39,27 @@ enum LogTailer {
 
             if let h = handle {
                 if let data = try? h.read(upToCount: 64 * 1024), !data.isEmpty {
-                    if let s = String(data: data, encoding: .utf8) {
-                        pendingPartial += s
-                        while let nl = pendingPartial.firstIndex(of: "\n") {
-                            let line = String(pendingPartial[..<nl])
-                            pendingPartial.removeSubrange(...nl)
+                    pending.append(data)
+                    // Резать на строки на уровне Data — байт 0x0A однозначен в UTF-8
+                    // (multibyte continuation байты ВСЕГДА имеют старший бит 1).
+                    let nl: UInt8 = 0x0A
+                    while let nlIdx = pending.firstIndex(of: nl) {
+                        let lineData = pending.prefix(upTo: nlIdx)
+                        pending.removeSubrange(...nlIdx)
+                        if let line = String(data: lineData, encoding: .utf8) {
+                            if !line.isEmpty { onLine(line) }
+                        } else {
+                            // Гарантированно невалидный UTF-8 (например, обрезанный
+                            // chunk на границе старого файла после ротации). Декодим
+                            // с заменой битых байт на U+FFFD, лишь бы не терять строку.
+                            let line = String(decoding: lineData, as: UTF8.self)
                             if !line.isEmpty { onLine(line) }
                         }
+                    }
+                    // Защита от unbounded роста pending: одна строка > 1MB —
+                    // сбросить, скорее всего лог битый или поток без \n.
+                    if pending.count > 1 * 1024 * 1024 {
+                        pending.removeAll(keepingCapacity: false)
                     }
                     continue   // сразу следующая итерация — данных может быть ещё
                 }

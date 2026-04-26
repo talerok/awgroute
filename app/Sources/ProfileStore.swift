@@ -54,13 +54,18 @@ final class ProfileStore: ObservableObject {
     // MARK: - Import / Update / Delete
 
     /// Импортировать `.conf` файл. Возвращает созданный профиль.
+    /// Atomicity: если любая часть упадёт (Keychain write, persist на диск) —
+    /// откатываем все Keychain-записи, чтобы не оставить orphan-секретов.
     @discardableResult
     func importConf(at url: URL, name: String? = nil) throws -> Profile {
         let text = try String(contentsOf: url, encoding: .utf8)
         let parsed = try AwgConfigParser.parse(text)
         let id = UUID()
 
-        // Положить секреты в Keychain
+        // Rollback на любую ошибку до return — иначе orphan'ы в Keychain.
+        var success = false
+        defer { if !success { KeychainStore.deleteAll(forProfile: id) } }
+
         try KeychainStore.set(parsed.interface.privateKey, account: ProfileSecretAccounts.privateKey(profileID: id))
         for (i, peer) in parsed.peers.enumerated() {
             if let psk = peer.presharedKey, !psk.isEmpty {
@@ -86,6 +91,7 @@ final class ProfileStore: ObservableObject {
             config: stripped
         )
         try persist(profile)
+        success = true
         reload()
         return profile
     }
@@ -117,7 +123,7 @@ final class ProfileStore: ObservableObject {
         return cfg
     }
 
-    static let keychainSentinel = "<keychain-ref>"
+    nonisolated static let keychainSentinel = "<keychain-ref>"
 
     private func persist(_ profile: Profile) throws {
         let url = dir.appendingPathComponent("\(profile.id.uuidString).json")

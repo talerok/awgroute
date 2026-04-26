@@ -27,6 +27,10 @@ public enum AwgJSONGenerator {
         public var localDNSServer: String = "192.168.1.1"
         /// Удалённый DNS — для туннеля.
         public var remoteDNSServer: String = "1.1.1.1"
+        /// Native TUN режим: AWG сам поднимает системный utun, sing-box-роутинг
+        /// отключён. Простой full-tunnel, как нативный AmneziaVPN-клиент.
+        /// Используй, если smart-mode (с rules) не работает.
+        public var useNativeTunMode: Bool = false
 
         public init() {}
     }
@@ -42,30 +46,54 @@ public enum AwgJSONGenerator {
 
     /// Полный конфиг amnezia-box. `userRoute` — пользовательский JSON правил из этапа 4.
     /// Если `userRoute == nil`, route собирается минимально (sniff + hijack-dns + final → endpointTag).
+    ///
+    /// Если `options.useNativeTunMode == true` — генерится минимальный конфиг, где
+    /// AWG сам управляет системным TUN (как в нативном AmneziaVPN). В этом режиме
+    /// sing-box-роутинг и `userRoute` НЕ применяются: full-tunnel.
     public static func fullConfigJSON(
         from config: AwgConfig,
         options: Options = Options(),
         userRoute: [String: Any]? = nil,
         userDNS: [String: Any]? = nil
     ) throws -> Data {
+        if options.useNativeTunMode {
+            return try nativeTunConfigJSON(from: config, options: options)
+        }
         let endpoint = endpointDict(from: config, options: options)
 
-        var dns: [String: Any] = userDNS ?? defaultDNSDict(options: options)
-        // Если пользователь не указал servers — используем дефолтные
-        if dns["servers"] == nil { dns["servers"] = defaultDNSDict(options: options)["servers"] }
-        if dns["final"]  == nil { dns["final"]  = "remote" }
+        // userDNS — опциональная секция `dns` из пользовательского rules.json
+        // (Variant B). Поля, которые пользователь не указал, добираются из
+        // дефолтного DNS-словаря, чтобы не потерять `local` сервер и др.
+        var dns: [String: Any] = userDNS ?? [:]
+        let defaults = defaultDNSDict(options: options)
+        if dns["servers"]  == nil { dns["servers"]  = defaults["servers"] }
+        if dns["final"]    == nil { dns["final"]    = defaults["final"] }
+        if dns["rules"]    == nil { dns["rules"]    = defaults["rules"] }
+        if dns["strategy"] == nil { dns["strategy"] = defaults["strategy"] }
 
+        // TUN MTU должен быть НЕ БОЛЬШЕ AWG MTU, иначе пакеты от TUN не влезают
+        // в AWG payload (WG header + AWG padding S1..S4). Если в профиле задан
+        // MTU — синхронизируем, иначе используем дефолт TUN.
+        let effectiveTunMTU = config.interface.mtu ?? options.tunMTU
         let inbounds: [[String: Any]] = [[
             "type": "tun",
             "tag": "tun-in",
             "interface_name": options.tunInterfaceName,
             "address": [options.tunAddress],
-            "mtu": options.tunMTU,
+            "mtu": effectiveTunMTU,
             "auto_route": true,
             "strict_route": false,
-            "stack": "system"
+            // gvisor netstack — стабильнее на macOS с AWG, чем "system"
+            // (с system наблюдалась деградация трафика через 15-20 сек после handshake)
+            "stack": "gvisor"
         ]]
 
+        // `direct` outbound нужен, чтобы пользовательские правила могли писать
+        // `"outbound": "direct"` и `"final": "direct"` (для bypass-роутинга).
+        // В прошлой итерации мы его убрали из-за ошибки "detour to an empty
+        // direct outbound makes no sense" — но та ошибка была из DNS server'а
+        // c `detour: "direct"`. Сейчас наш local DNS использует тип "local" без
+        // detour, и проблема ушла.
         let outbounds: [[String: Any]] = [
             ["type": "direct", "tag": "direct"]
         ]
@@ -73,12 +101,35 @@ public enum AwgJSONGenerator {
         let route = mergedRoute(userRoute: userRoute, options: options)
 
         let root: [String: Any] = [
+            // info — повседневный режим. Видны старт/стоп, handshake, route ошибки.
+            // Для глубокой отладки временно меняй на "debug" (на активном трафике
+            // лог растёт ~500 КБ/мин — ротация срабатывает каждые 10-20 мин).
             "log": ["level": "info", "timestamp": true],
             "dns": dns,
             "inbounds": inbounds,
             "outbounds": outbounds,
             "endpoints": [endpoint],
             "route": route,
+            "experimental": [
+                "clash_api": [
+                    "external_controller": options.clashAPIListen
+                ]
+            ]
+        ]
+        return try serialize(root)
+    }
+
+    // MARK: - Native TUN mode
+
+    /// Минимальный конфиг: только endpoint c `useIntegratedTun: true`.
+    /// AWG поднимает свой системный TUN, делает auto_route, всё работает
+    /// как в нативном AmneziaVPN-клиенте. Без sing-box-route и DNS-перехвата.
+    static func nativeTunConfigJSON(from config: AwgConfig, options: Options) throws -> Data {
+        var endpoint = endpointDict(from: config, options: options)
+        endpoint["useIntegratedTun"] = true   // override
+        let root: [String: Any] = [
+            "log": ["level": "info", "timestamp": true],
+            "endpoints": [endpoint],
             "experimental": [
                 "clash_api": [
                     "external_controller": options.clashAPIListen
@@ -133,20 +184,24 @@ public enum AwgJSONGenerator {
     }
 
     private static func defaultDNSDict(options: Options) -> [String: Any] {
+        // `local` сервер (тип "local") использует системный resolver. У него НЕТ
+        // detour — sing-box 1.12 ругается «detour to an empty direct outbound makes
+        // no sense», т.к. direct в 1.12 — не явный outbound, а route-action.
         [
             "servers": [
-                ["type": "udp", "tag": "remote", "server": options.remoteDNSServer, "detour": options.endpointTag],
-                ["type": "udp", "tag": "local",  "server": options.localDNSServer,  "detour": "direct"]
+                ["type": "udp",   "tag": "remote", "server": options.remoteDNSServer, "detour": options.endpointTag],
+                ["type": "local", "tag": "local"]
             ],
             "rules": [],
             "final": "remote",
-            "strategy": options.dnsStrategy,
-            "independent_cache": true
+            "strategy": options.dnsStrategy
+            // `independent_cache` — deprecated в sing-box 1.14, убрано
         ]
     }
 
     /// Применяет правила пользователя:
-    /// - `final == "vpn"` (зарезервированное имя) → подменяем на `options.endpointTag`
+    /// - `final == "vpn"` и любые `outbound == "vpn"` (зарезервированное имя) →
+    ///   подменяем на `options.endpointTag`
     /// - гарантируем sniff и hijack-dns в начале правил
     /// - проставляем `default_domain_resolver` если пользователь не указал
     static func mergedRoute(userRoute: [String: Any]?, options: Options) -> [String: Any] {
@@ -161,6 +216,17 @@ public enum AwgJSONGenerator {
         if !hasSniff  { prefix.append(["action": "sniff"]) }
         if !hasHijack { prefix.append(["protocol": "dns", "action": "hijack-dns"]) }
         rules = prefix + rules
+
+        // Подмена "vpn" → endpointTag в outbound каждого правила. По умолчанию
+        // endpointTag и есть "vpn", замена no-op — но если пользователь сменит тег
+        // через Options, правила не сломаются (см. test_user_outbound_vpn_replaced).
+        if options.endpointTag != "vpn" {
+            rules = rules.map { rule -> [String: Any] in
+                var r = rule
+                if (r["outbound"] as? String) == "vpn" { r["outbound"] = options.endpointTag }
+                return r
+            }
+        }
         route["rules"] = rules
 
         // final: подмена зарезервированного "vpn"

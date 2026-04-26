@@ -9,8 +9,6 @@ struct TunnelView: View {
     @EnvironmentObject var profiles: ProfileStore
     @EnvironmentObject var rules: RulesStore
     @EnvironmentObject var telemetry: Telemetry
-    @State private var logLines: [String] = []
-    @State private var logSubscribed = false
     @State private var importError: String?
 
     var body: some View {
@@ -24,14 +22,6 @@ struct TunnelView: View {
                presenting: importError) { _ in
             Button("OK") { importError = nil }
         } message: { msg in Text(msg) }
-        .task {
-            if logSubscribed { return }
-            logSubscribed = true
-            for await line in backend.logs {
-                if logLines.count > 5_000 { logLines.removeFirst(1_000) }
-                logLines.append(line)
-            }
-        }
         .onDrop(of: [.fileURL], isTargeted: nil) { handleDrop(providers: $0) }
     }
 
@@ -144,21 +134,44 @@ struct TunnelView: View {
             }
 
             Divider()
-            Text("Logs").font(.headline)
+            HStack {
+                Text("Logs").font(.headline)
+                Spacer()
+                Button {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(backend.lines.joined(separator: "\n"), forType: .string)
+                } label: { Label("Copy", systemImage: "doc.on.doc") }
+                .buttonStyle(.borderless)
+                .help("Copy all visible log lines")
+
+                Button {
+                    NSWorkspace.shared.open(Paths.backendLog)
+                } label: { Label("Open file", systemImage: "arrow.up.right.square") }
+                .buttonStyle(.borderless)
+                .help("Open ~/Library/Logs/AwgRoute/amnezia-box.log")
+
+                Button {
+                    backend.clearLines()
+                } label: { Label("Clear", systemImage: "xmark.circle") }
+                .buttonStyle(.borderless)
+                .help("Clear visible log buffer")
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(logLines.enumerated()), id: \.offset) { idx, line in
+                        ForEach(Array(backend.lines.enumerated()), id: \.offset) { idx, line in
                             Text(line)
                                 .font(.system(.caption, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
                                 .id(idx)
                         }
                     }.padding(8)
                 }
                 .background(Color(NSColor.textBackgroundColor))
                 .border(.separator)
-                .onChange(of: logLines.count) { newValue in
+                .onChange(of: backend.lines.count) { newValue in
                     if newValue > 0 { proxy.scrollTo(newValue - 1, anchor: .bottom) }
                 }
             }
@@ -231,11 +244,11 @@ struct TunnelView: View {
 
     private func importViaPanel() {
         let panel = NSOpenPanel()
-        if let conf = UTType("public.conf-source-code") {
-            panel.allowedContentTypes = [conf, .text]
-        } else {
-            panel.allowedContentTypes = [.text]
-        }
+        // Любой файл — фильтрация по содержимому, а не по UTType: WireGuard .conf
+        // не имеет canonical UTI, а `.text` его тоже не покрывает на macOS 13+.
+        var types: [UTType] = [.data, .plainText]
+        if let conf = UTType(filenameExtension: "conf") { types.append(conf) }
+        panel.allowedContentTypes = types
         panel.allowsOtherFileTypes = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true

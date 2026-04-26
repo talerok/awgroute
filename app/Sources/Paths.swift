@@ -22,11 +22,25 @@ enum Paths {
     /// Полный путь к лог-файлу backend.
     static let backendLog: URL = logsDir.appendingPathComponent("amnezia-box.log")
 
-    /// Текущий действующий конфиг amnezia-box.
-    static let activeConfig: URL = appSupport.appendingPathComponent("active-config.json")
+    /// `~/Library/Caches/AwgRoute/` — для конфигов с секретами и runtime-state.
+    /// Caches исключаются из Time Machine и iCloud backup.
+    static let cachesDir: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let url = base.appendingPathComponent("AwgRoute", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        // 700: только владелец может листать содержимое.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        return url
+    }()
 
-    /// Файл с PID работающего amnezia-box. Лежит в /tmp, потому что управляется root-процессом.
-    static let pidFile = URL(fileURLWithPath: "/tmp/awgroute-amnezia-box.pid")
+    /// Текущий действующий конфиг amnezia-box. В Caches (а не Application Support):
+    /// файл содержит распакованный AWG private key — не должен попадать в Time Machine.
+    static let activeConfig: URL = cachesDir.appendingPathComponent("active-config.json")
+
+    /// Файл с PID работающего amnezia-box. В Caches под user-only директорией —
+    /// в /tmp его мог бы переписать любой локальный процесс, и наш `kill -TERM` под
+    /// sudo застрелил бы произвольный процесс root'а.
+    static let pidFile: URL = cachesDir.appendingPathComponent("backend.pid")
 
     /// Путь к amnezia-box бинарнику. Ищем сначала рядом с .app (для Release-сборки),
     /// потом по пути репозитория относительно текущего исполняемого файла (для dev).
@@ -42,7 +56,8 @@ enum Paths {
             let cand = URL(fileURLWithPath: env)
             if FileManager.default.isExecutableFile(atPath: cand.path) { return cand }
         }
-        // Кандидат 3: подняться от текущего exe до корня репо и взять backend/amnezia-box
+        // Кандидат 3: подняться от текущего exe до корня репо и взять backend/amnezia-box.
+        // Глубина 10 уровней покрывает Xcode DerivedData (.../Build/Products/Debug/AwgRoute.app/Contents/MacOS/).
         var dir = exe.deletingLastPathComponent()
         for _ in 0..<10 {
             let cand = dir.appendingPathComponent("backend/amnezia-box")
@@ -50,9 +65,6 @@ enum Paths {
             if dir.path == "/" { break }
             dir = dir.deletingLastPathComponent()
         }
-        // Кандидат 4: жёстко зашитый путь — последний шанс
-        let hardcoded = URL(fileURLWithPath: "/Users/artem/Documents/git/vpn-client/backend/amnezia-box")
-        if FileManager.default.isExecutableFile(atPath: hardcoded.path) { return hardcoded }
         return nil
     }
 }

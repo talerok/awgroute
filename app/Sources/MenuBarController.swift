@@ -12,6 +12,18 @@ final class MenuBarController: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
 
     func install(backend: BackendController, profiles: ProfileStore, rules: RulesStore) {
+        // Защита от повторной установки: WindowGroup.onAppear может выстрелить
+        // несколько раз (например, при переключении Spaces или sleep/wake).
+        // Без этого получится несколько NSStatusItem'ов (дублирующиеся иконки)
+        // и накопление подписок Combine.
+        if statusItem != nil {
+            self.backend = backend
+            self.profiles = profiles
+            self.rules = rules
+            updateIcon()
+            rebuildMenu()
+            return
+        }
         self.backend = backend
         self.profiles = profiles
         self.rules = rules
@@ -110,11 +122,15 @@ final class MenuBarController: ObservableObject {
 
     @objc private func showWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        // Поднять первое окно приложения
-        for w in NSApp.windows where w.title.contains("AwgRoute") || w.contentViewController != nil {
+        // Сначала пробуем поднять существующее окно — фильтруем служебные NSStatusBar/NSPanel.
+        for w in NSApp.windows where w.canBecomeKey && w.isVisible {
             w.makeKeyAndOrderFront(nil)
             return
         }
+        // Все окна закрыты (LSUIElement=false + пользователь нажал ⌘W).
+        // Re-open через NSWorkspace — macOS обнаружит уже работающий процесс,
+        // вызовет applicationShouldHandleReopen и SwiftUI пересоздаст WindowGroup.
+        NSWorkspace.shared.open(Bundle.main.bundleURL)
     }
 }
 

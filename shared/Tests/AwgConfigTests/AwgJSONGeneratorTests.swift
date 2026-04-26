@@ -131,6 +131,62 @@ final class AwgJSONGeneratorTests: XCTestCase {
         XCTAssertEqual(route["final"] as? String, "my-server")
     }
 
+    func testUserOutboundVpnReplacedWhenEndpointTagChanged() throws {
+        let cfg = try AwgConfigParser.parse(try loadFixture("minimal"))
+        var opts = AwgJSONGenerator.Options()
+        opts.endpointTag = "my-server"
+        let userRoute: [String: Any] = [
+            "rules": [
+                ["domain_suffix": [".com"], "outbound": "vpn"],
+                ["ip_is_private": true, "outbound": "direct"]
+            ],
+            "final": "vpn"
+        ]
+        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts, userRoute: userRoute)
+        let d = try parseToDict(json)
+        let rules = (d["route"] as! [String: Any])["rules"] as! [[String: Any]]
+        // Префиксы sniff + hijack-dns + 2 пользовательских
+        XCTAssertEqual(rules.count, 4)
+        XCTAssertEqual(rules[2]["outbound"] as? String, "my-server")
+        XCTAssertEqual(rules[3]["outbound"] as? String, "direct")
+    }
+
+    func testUserDNSOverridesDefaults() throws {
+        let cfg = try AwgConfigParser.parse(try loadFixture("minimal"))
+        let userDNS: [String: Any] = [
+            "servers": [
+                ["type": "udp", "tag": "remote", "server": "9.9.9.9", "detour": "vpn"],
+                ["type": "local", "tag": "local"]
+            ],
+            "final": "remote"
+        ]
+        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg, userRoute: nil, userDNS: userDNS)
+        let d = try parseToDict(json)
+        let dns = d["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        XCTAssertEqual(servers.first?["server"] as? String, "9.9.9.9")
+        // strategy не задана пользователем — взято из дефолтов
+        XCTAssertEqual(dns["strategy"] as? String, "ipv4_only")
+    }
+
+    func testWarningsExcludedFromCodable() throws {
+        let cfg = try AwgConfigParser.parse(try loadFixture("with_unknown_keys"))
+        XCTAssertFalse(cfg.warnings.isEmpty)
+        let data = try JSONEncoder().encode(cfg)
+        // warnings не должны попасть в JSON-сериализацию профиля
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertNil(dict["warnings"], "warnings — runtime-only поле, не должно сериализоваться")
+    }
+
+    func testEqualityIgnoresWarnings() throws {
+        let raw = try loadFixture("minimal")
+        var a = try AwgConfigParser.parse(raw)
+        var b = try AwgConfigParser.parse(raw)
+        a.warnings = ["foo"]
+        b.warnings = []
+        XCTAssertEqual(a, b, "warnings не учитываются в Equatable")
+    }
+
     func testIPv6PeerEndpoint() throws {
         let cfg = try AwgConfigParser.parse(try loadFixture("ipv6_endpoint"))
         let json = try AwgJSONGenerator.endpointJSON(from: cfg)

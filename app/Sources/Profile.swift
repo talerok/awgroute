@@ -15,8 +15,15 @@ struct Profile: Identifiable, Equatable, Codable {
     /// Полный AwgConfig с **пустыми** секретами.
     var config: AwgConfig
 
-    /// Маскированное представление приватного ключа: `aGVs…NDU2`
-    var maskedPrivateKey: String { Profile.mask(config.interface.privateKey.isEmpty ? "(stored in Keychain)" : config.interface.privateKey) }
+    /// Маскированное представление приватного ключа: `aGVs…NDU2`.
+    /// В нормальном flow приватный ключ в JSON заменён на sentinel ProfileStore.keychainSentinel,
+    /// и пользователь видит "(stored in Keychain)". `mask` применяется только если профиль
+    /// каким-то образом содержит реальный ключ (legacy/manual edit).
+    var maskedPrivateKey: String {
+        let pk = config.interface.privateKey
+        if pk.isEmpty || pk == ProfileStore.keychainSentinel { return "(stored in Keychain)" }
+        return Profile.mask(pk)
+    }
 
     static func mask(_ s: String) -> String {
         guard s.count > 10 else { return String(repeating: "•", count: max(s.count, 4)) }

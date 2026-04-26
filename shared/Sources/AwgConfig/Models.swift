@@ -4,17 +4,25 @@ import Foundation
 ///
 /// Источник правды по полям AWG-обфускации — `backend/src/option/awg.go`.
 /// Поля `j1-j3`, `itime`, прочие "неизвестные ключи" из `.conf` сохраняются
-/// в `interface.unknown` и игнорируются генератором (с предупреждением через `warnings`).
+/// в `warnings` и игнорируются генератором.
 public struct AwgConfig: Equatable, Sendable, Codable {
     public var interface: Interface
     public var peers: [Peer]
-    /// Ключи из `[Interface]`, которых нет в нашей схеме. Полезно для логов.
-    public var warnings: [String]
+    /// Ключи из `[Interface]`, которых нет в нашей схеме — runtime-only, для UI/логов.
+    /// Не сериализуется (Codable) и не учитывается в Equatable: профиль идентичен
+    /// независимо от того, осталась ли пара лишних строк в исходном .conf.
+    public var warnings: [String] = []
 
     public init(interface: Interface, peers: [Peer], warnings: [String] = []) {
         self.interface = interface
         self.peers = peers
         self.warnings = warnings
+    }
+
+    enum CodingKeys: String, CodingKey { case interface, peers }
+
+    public static func == (lhs: AwgConfig, rhs: AwgConfig) -> Bool {
+        lhs.interface == rhs.interface && lhs.peers == rhs.peers
     }
 
     public struct Interface: Equatable, Sendable, Codable {
