@@ -1,0 +1,70 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      { "type": "udp", "tag": "remote", "server": "1.1.1.1",     "detour": "vpn"    },
+      { "type": "udp", "tag": "local",  "server": "192.168.1.1", "detour": "direct" }
+    ],
+    "rules": [],
+    "final": "remote",
+    "strategy": "ipv4_only",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "interface_name": "utun123",
+      "address": ["172.19.0.1/30"],
+      "mtu": 1408,
+      "auto_route": true,
+      "strict_route": false,
+      "stack": "system"
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "endpoints": [
+    {
+      "type": "awg",
+      "tag": "vpn",
+      "private_key": "aGVsbG93b3JsZGZha2Vwcml2YXRla2V5MTIzNDU2Nzg5MA==",
+      "address": ["10.8.0.2/24"],
+      "mtu": 1280,
+      "useIntegratedTun": false,
+      "jc": 4, "jmin": 40, "jmax": 70,
+      "s1": 0, "s2": 0, "s3": 0, "s4": 0,
+      "h1": "1", "h2": "2", "h3": "3", "h4": "4",
+      "i1": "<b 0xf6><c><t><r 10>",
+      "i2": "<b 0x00 0x01><c><r 30>",
+      "peers": [
+        {
+          "address": "198.51.100.10",
+          "port": 51820,
+          "public_key": "ZmFrZXBlZXJwdWJsaWNrZXlmb3J0ZXN0aW5nMTIzNDU2Nzg5MA==",
+          "preshared_key": "ZmFrZXByZXNoYXJlZGtleWZvcnRlc3RpbmcxMjM0NTY3ODkwYWE=",
+          "allowed_ips": ["0.0.0.0/0", "::/0"],
+          "persistent_keepalive_interval": 25
+        }
+      ]
+    }
+  ],
+  "route": {
+    "rules": [
+      { "action": "sniff" },
+      { "protocol": "dns", "action": "hijack-dns" }
+    ],
+    "final": "vpn",
+    "auto_detect_interface": true,
+    "default_domain_resolver": { "server": "local" }
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:9090"
+    }
+  }
+}

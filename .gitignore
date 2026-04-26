@@ -1,0 +1,28 @@
+# Build artifacts
+backend/amnezia-box
+backend/.cache/
+backend/src/
+
+# Real configs/keys — never commit
+*.real.conf
+tests/conf-samples/*.real.conf
+tests/configs/*.real.json
+active-config.json
+
+# macOS
+.DS_Store
+
+# Xcode
+app/build/
+app/DerivedData/
+*.xcuserstate
+xcuserdata/
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift
+.build/
+.swiftpm/
+Package.resolved
+
+# Logs
+*.log
