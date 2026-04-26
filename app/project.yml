@@ -30,6 +30,36 @@ targets:
       - path: ../resources/rule-presets
         type: folder
         buildPhase: resources
+      # amnezia-box backend → AwgRoute.app/Contents/Resources/amnezia-box.
+      # Без этого Paths.backendBinary() возвращает nil для bundle-сборки запущенной
+      # вне репозитория (например из /Applications/), и UI показывает "Backend missing".
+      # optional:true — разрешает первичную генерацию проекта до того как backend/build.sh
+      # отработал (xcodegen иначе ругнётся на отсутствующий файл).
+      - path: ../backend/amnezia-box
+        optional: true
+        buildPhase: resources
+      # Helper-бинарь копируется в AwgRoute.app/Contents/Library/LaunchServices/awgroute-helper.
+      # Это стандартное место для privileged helper'ов в .app-bundle. Установщик
+      # (HelperInstaller.swift) копирует оттуда в /Library/PrivilegedHelperTools/.
+      - path: ../helper/awgroute-helper
+        optional: true
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchServices
+      # Plist-template идёт в Resources — установщик читает и подставляет owner.
+      - path: ../helper/com.awgroute.helper.plist.template
+        buildPhase: resources
+    preBuildScripts:
+      - name: Build awgroute-helper
+        # Собирает helper-бинарь до того, как Xcode попытается его скопировать в bundle.
+        # outputFiles даёт Xcode'у знание о produced artifact для инкрементальных билдов.
+        script: |
+          set -euo pipefail
+          cd "${SRCROOT}/../helper"
+          ./build.sh
+        outputFiles:
+          - $(SRCROOT)/../helper/awgroute-helper
     info:
       path: Sources/Info.plist
       properties:

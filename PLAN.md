@@ -44,7 +44,7 @@
 | Apple Developer аккаунт | $99/год обязательно | Не нужен |
 | Code signing | Developer ID обязательно | Ad-hoc или без подписи |
 | Notarization | Обязательна | Не нужна |
-| Helper Tool + SMAppService + XPC | Нужен (привилегии) | Не нужен — `sudo` |
+| Helper Tool + SMAppService + XPC | SMAppService.daemon ($99 Apple Developer ID) | LaunchDaemon без подписи (Этап 7) или `sudo` (Этапы 2–5) |
 | Hardened Runtime + entitlements | Обязательно | Не нужно |
 | Sparkle для автообновлений | Желательно | Не нужно |
 | DMG-сборка | Желательно | Не нужно |
@@ -285,8 +285,6 @@ GUI читает `.conf` профили, генерирует JSON-конфиг 
 
 Кандидаты:
 
-- [ ] **Sleep/wake** — переподключение после сна. Подписка на `NSWorkspace.didWakeNotification`.
-- [ ] **Смена сети** — переподключение при переходе Wi-Fi ↔ Ethernet. `NWPathMonitor`.
 - [ ] **Автозапуск** — Login Item через `SMAppService.loginItem`.
 - [ ] **Auto-connect on launch** — опция в настройках.
 - [ ] **Quick connect** — горячая клавиша для toggle.
@@ -294,13 +292,99 @@ GUI читает `.conf` профили, генерирует JSON-конфиг 
 
 Не делай это всё сразу. Начни без — добавляй то, что реально мешает в повседневном использовании.
 
+### Этап 7: Privileged helper для silent reconnect (sleep/wake, смена сети)
+
+**Цель:** установить root-демон `awgroute-helper` один раз. Дальше все операции с backend (start/stop/restart) идут через него без AppleScript-промпта. Это разблокирует автоматический recovery после wake-from-sleep и смены Wi-Fi/Ethernet.
+
+**Зачем понадобилось:**
+
+В Этапах 0–5 backend стартует через `do shell script with administrator privileges` — пароль каждый раз. Для ручного Connect/Disconnect это терпимо. После Этапа 6 диагностикой выяснилось (см. `DECISIONS.md`):
+
+1. amnezia-box не восстанавливается сам после длительного sleep: handshake AWG протухает, UDP-сокет endpoint'а в полу-мёртвом состоянии. Backend пишет `network: updated default interface` и `sing-box started` в лог, но трафик идёт мимо туннеля — сайты показывают реальный IP.
+2. Корневая причина — застрявший NAT-mapping на роутере + UDP-сокет с тем же src-port. Recovery возможен только через **полный рестарт процесса**: новый рандомный src-port → новая NAT-запись → handshake проходит.
+3. Авто-рестарт без промпта = нужен помощник с правами root.
+
+`SMAppService.daemon` (правильный macOS-way) требует Apple Developer ID ($99/год). Отвергнут — App Store не нужен. Vintage `LaunchDaemon` в `/Library/LaunchDaemons/` работает без подписи Apple: `launchd` не делает Gatekeeper-проверку для бинарей, загруженных вручную через `launchctl bootstrap`, в отличие от SMAppService. Прецедент — Tunnelblick (десятилетия в проде, open source, без Developer ID).
+
+**Архитектура:**
+
+```
+GUI App (SwiftUI, user UID)
+   │
+   │  Unix socket: /var/run/awgroute-helper.sock
+   │  (mode 0660, owner root:staff — клиенты с UID в группе staff)
+   │  JSON-протокол: { "cmd": "start|stop|restart|status", ... }
+   ▼
+awgroute-helper (LaunchDaemon, root)
+   │
+   │  Process spawn / SIGTERM / wait
+   ▼
+amnezia-box (subprocess, root)
+   ├── TUN interface (utunN)
+   └── Clash API на 127.0.0.1:9090
+```
+
+UI больше не дёргает AppleScript для start/stop/restart. Helper-демон — единственная точка, имеющая root.
+
+**Задачи:**
+
+- [ ] Helper-бинарь `awgroute-helper` (Swift, отдельный target в Xcode-проекте `app/`):
+  - Long-running root-процесс, запускается launchd через socket activation
+  - Получает FD сокета через `launch_activate_socket("Listener", ...)`
+  - На каждом accept: проверка SO_PEERCRED → принять только UID == owner_uid (передаётся через env var в plist)
+  - Команды: `start <configPath>`, `stop`, `restart <configPath>`, `status`
+  - Path validation: `configPath` обязан начинаться с `/Users/<owner_uid_username>/Library/Caches/AwgRoute/`
+  - Бинарь к запуску — захардкоженный `/Applications/AwgRoute.app/Contents/Resources/amnezia-box`
+  - Управление subprocess'ом через `Foundation.Process` + tracking PID
+  - Лог в `/var/log/awgroute-helper.log` с ротацией по размеру
+- [ ] launchd-plist `com.awgroute.helper.plist`:
+  - `RunAtLoad=true`, `KeepAlive` с условием `SuccessfulExit=false`
+  - `UserName=root`
+  - `Sockets` секция с `SockPathName=/var/run/awgroute-helper.sock`, `SockPathMode=0660`, `SockPathOwner=0`, `SockPathGroup=20` (staff)
+  - `EnvironmentVariables` → owner UID (имя пользователя, который установил)
+- [ ] Установщик в Settings → «Enable silent reconnect» (одна кнопка):
+  - AppleScript-prompt с inline shell-блоком:
+    1. Копирует helper-бинарь из `/Applications/AwgRoute.app/Contents/Library/LaunchServices/awgroute-helper` в `/Library/PrivilegedHelperTools/awgroute-helper`
+    2. Копирует plist (с подставленным `owner_uid`) в `/Library/LaunchDaemons/com.awgroute.helper.plist`
+    3. `chown root:wheel` + `chmod 755` бинарь, `chmod 644` plist
+    4. `launchctl bootstrap system /Library/LaunchDaemons/com.awgroute.helper.plist`
+    5. Verify: `launchctl print system/com.awgroute.helper` returns `state = running`, файл socket существует
+  - Один промпт за всю жизнь приложения; до деинсталляции больше промптов нет
+- [ ] `BackendController` детектит helper по наличию socket. Поведение:
+  - Helper установлен → JSON через socket для start/stop/restart, никаких AppleScript
+  - Helper не установлен → fallback на текущий AppleScript-флоу (legacy)
+  - Баннер в UI «Enable silent reconnect for smoother sleep/wake» при первом запуске без helper'а — опциональный, не блокирующий
+- [ ] `NetworkWatcher` (новый модуль в `app/Sources/`):
+  - Подписка на `NSWorkspace.didWakeNotification` и `NWPathMonitor` (`.satisfied` после `.unsatisfied` или смена интерфейса) → coalescer (debounce 3 сек после последнего события)
+  - Probe: HTTP GET `https://api.ipify.org` через системный default route, timeout 3 сек
+  - Условие leak: probe вернул реальный IP (известен из baseline после успешного connect) ИЛИ 2 подряд timeout
+  - Action: `{"cmd":"restart","configPath":...}` через helper-socket
+  - UI: жёлтый значок menu bar + баннер «Reconnecting…» на время restart
+  - Watcher активен **только** если helper установлен (без него silent recovery невозможен)
+- [ ] Деинсталляция в Settings → «Disable silent reconnect»:
+  - AppleScript-prompt → `launchctl bootout system /Library/LaunchDaemons/com.awgroute.helper.plist` + `rm` обоих файлов + `rm -f /var/run/awgroute-helper.sock`
+  - UI возвращается к AppleScript-флоу
+
+**Безопасность:**
+
+- Helper всегда от root → bug в нём = root LPE. Mitigations: код малый (~300 строк), легко аудится; жёстко захардкожены пути к бинарю; configPath ограничен regex'ом; принимаются только 4 команды.
+- Socket mode 0660 + group staff + PEERCRED check на accept — другие пользователи системы не достучатся. UID owner передаётся через plist при установке.
+- amnezia-box JSON-конфиг сам по себе может содержать опасные опции (например, `experimental.cache_file.path` = произвольный путь записи от root). Compensation: configPath ограничен папкой Caches пользователя, куда писать может только сам пользователь — повышение привилегий невозможно (то, что пользователь и так может писать как root через свой же установленный helper, не является эскалацией).
+
+**Done when:**
+
+- Один AppleScript-prompt при включении silent reconnect в Settings, после этого Connect/Disconnect и автореконнект на wake/смену сети — без промптов.
+- После 5+ минут блокировки экрана трафик восстанавливается автоматически за <5 сек после разблокировки, в menu bar — жёлтый индикатор «Reconnecting…», никакого участия пользователя.
+- Деинсталляция возвращает поведение в исходное (AppleScript-промпт каждый раз).
+- При смене Wi-Fi ↔ Ethernet (или просто сменой Wi-Fi-сети) — то же поведение, тот же silent recovery.
+
 ## Что НЕ делать
 
 - ❌ Не реверсить control plane Amnezia, формат `vpn://` ключей, ротацию параметров
 - ❌ Не использовать NetworkExtension framework
 - ❌ Не писать свой WireGuard/AmneziaWG код
 - ❌ Не дублировать rule engine — всё через JSON-конфиг amnezia-box
-- ❌ Не делать Helper Tool / XPC / SMAppService — это нужно для distribution, не для себя
+- ❌ Не делать `SMAppService.daemon` — он требует Apple Developer ID ($99/год). Vintage `LaunchDaemon` в `/Library/LaunchDaemons/` (Этап 7) даёт тот же эффект без подписи Apple.
 - ❌ Не подписывать и не нотаризовать — личное использование
 - ❌ Не делать Universal Binary — собирай под свою архитектуру
 - ❌ Не делать Sparkle, DMG, инсталляторы — `xcodebuild` + копирование в `/Applications/`

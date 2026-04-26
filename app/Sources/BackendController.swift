@@ -46,12 +46,30 @@ final class BackendController: ObservableObject {
                 self.lines.append(line)
             }
         }
-        // На случай предыдущего запуска, который не закрылся корректно: подцепиться
-        // к существующему PID. ВАЖНО: проверяем имя процесса — если PID был
-        // переиспользован (после краха amnezia-box и долгой паузы), мы не должны
-        // adopt'ить чужой процесс как свой backend (UI бы показал "Running" указывая
-        // на левый pid, при Disconnect security-проверка в stop() остановит kill,
-        // но всё равно запутывает состояние). Stale PID-файл удаляем.
+        // Если установлен helper-демон — он наша source of truth. Спросим его статус
+        // асинхронно, чтобы не блокировать init на сетевом I/O сокета.
+        if HelperClient.isInstalled {
+            Task { [weak self] in
+                do {
+                    let resp = try await HelperClient.send(.status)
+                    guard let self else { return }
+                    if resp.running == true, let pid = resp.pid {
+                        self.status = .running(pid: pid)
+                        self.startLogTailerIfNeeded()
+                        self.startLogRotationTimer()
+                    }
+                } catch {
+                    // Helper не отвечает — пользователь увидит ошибку при следующем connect.
+                }
+            }
+            return
+        }
+        // Legacy-флоу (без helper'а): подцепиться к существующему PID.
+        // ВАЖНО: проверяем имя процесса — если PID был переиспользован (после краха
+        // amnezia-box и долгой паузы), мы не должны adopt'ить чужой процесс как свой
+        // backend (UI бы показал "Running" указывая на левый pid, при Disconnect
+        // security-проверка в stop() остановит kill, но всё равно запутывает
+        // состояние). Stale PID-файл удаляем.
         if let pid = readPID() {
             if processIsAlive(pid) && Self.processNameMatchesBackendStatic(pid) {
                 status = .running(pid: pid)
@@ -99,6 +117,51 @@ final class BackendController: ObservableObject {
         // Стартуем tailer заранее — чтобы было видно сообщения о падении.
         startLogTailerIfNeeded()
 
+        // === Helper-флоу: silent start через Unix socket, без AppleScript-промпта. ===
+        if HelperClient.isInstalled {
+            // Параллельно: ждём ответа на .start И поллим .status. Что первое скажет
+            // running с pid'ом — то и применяем. Это закрывает edge case, когда helper
+            // успешно spawn'ил backend, но reply задерживается (наблюдалось: minute
+            // timeout при готовом туннеле).
+            let resp: HelperClient.Response? = await withTaskGroup(
+                of: HelperClient.Response?.self,
+                returning: HelperClient.Response?.self
+            ) { group in
+                group.addTask {
+                    return try? await HelperClient.send(.start(configPath: configPath), timeout: 15)
+                }
+                group.addTask {
+                    // Поллинг status. Даём helper'у фору 500ms на быстрый ответ.
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    for _ in 0..<20 {   // 20 × 500ms = 10 сек поллинга
+                        if Task.isCancelled { return nil }
+                        if let r = try? await HelperClient.send(.status, timeout: 3),
+                           r.running == true, r.pid != nil {
+                            return r
+                        }
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                    return nil
+                }
+                // Берём первый, у которого pid + running.
+                for await result in group {
+                    if let r = result, r.pid != nil, (r.running ?? true) {
+                        group.cancelAll()
+                        return r
+                    }
+                }
+                return nil
+            }
+
+            if let resp = resp {
+                await applyHelperStartResponse(resp)
+                return
+            }
+            status = .error("helper start: timed out without status confirmation")
+            return
+        }
+
+        // === Legacy-флоу: AppleScript с administrator privileges, пароль-промпт. ===
         // Однострочный sh-скрипт: фоновый запуск с переадресацией I/O.
         // `nohup` НЕ используем: внутри `do shell script` нет TTY, и nohup падает
         // c "Inappropriate ioctl for device". sh из AppleScript не шлёт SIGHUP
@@ -169,6 +232,21 @@ final class BackendController: ObservableObject {
         }
         status = .stopping
 
+        // === Helper-флоу: silent stop. ===
+        if HelperClient.isInstalled {
+            do {
+                _ = try await HelperClient.send(.stop)
+                stopLogTailer()
+                stopLogRotationTimer()
+                status = .stopped
+                return
+            } catch {
+                status = .error("helper stop: \(error)")
+                return
+            }
+        }
+
+        // === Legacy-флоу. ===
         let pid: Int32? = readPID()
         guard let pid = pid else {
             // Нет PID — нечего убивать, но lingering tailer/timer надо остановить.
@@ -282,6 +360,51 @@ final class BackendController: ObservableObject {
         // Игнорируем ошибки — лучше попытаться, чем оставить процесс
     }
 
+    /// Общая обработка успешного ответа helper'а на start/restart/status: проверка PID,
+    /// установка `.running`, чистка active-config'а. Вынесено чтобы start-flow и retry
+    /// через .status шли через одну точку.
+    private func applyHelperStartResponse(_ resp: HelperClient.Response) async {
+        guard let pid = resp.pid else {
+            status = .error("helper returned no pid")
+            return
+        }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        if !processIsAlive(pid) {
+            let detail = Self.extractLastFatal() ?? "see ~/Library/Logs/AwgRoute/amnezia-box.log"
+            status = .error("amnezia-box exited: \(detail)")
+            return
+        }
+        status = .running(pid: pid)
+        startLogRotationTimer()
+        try? FileManager.default.removeItem(at: Paths.activeConfig)
+    }
+
+    // MARK: - Restart
+
+    /// Атомарный рестарт через helper'а — для wake/leak-recovery (NetworkWatcher).
+    /// Без helper'а — последовательно stop+start (два sudo-промпта; авто-recovery без helper'а
+    /// вообще теряет смысл, но fallback оставлен для ручного use-case).
+    func restart(configPath: String) async {
+        if HelperClient.isInstalled {
+            switch status {
+            case .stopping, .starting: return
+            default: break
+            }
+            status = .starting
+            do {
+                let resp = try await HelperClient.send(.restart(configPath: configPath))
+                await applyHelperStartResponse(resp)
+                startLogTailerIfNeeded()
+            } catch {
+                status = .error("helper restart: \(error)")
+            }
+            return
+        }
+        // Legacy: два промпта — но это лучше чем дёргать пользователя auto-recovery'ем.
+        await stop()
+        await start(configPath: configPath)
+    }
+
     // MARK: - Internal
 
     private func startLogTailerIfNeeded() {
@@ -337,10 +460,10 @@ final class BackendController: ObservableObject {
         return nil
     }
 
-    /// Лог backend цветной (ANSI escape \e[...m) — для UI-строки нужно убрать.
+    private static let ansiRegex = try? NSRegularExpression(pattern: "\u{1b}\\[[0-9;]*m")
+
     private static func stripANSI(_ s: String) -> String {
-        let pattern = "\u{1b}\\[[0-9;]*m"
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        guard let re = ansiRegex else { return s }
         let range = NSRange(s.startIndex..<s.endIndex, in: s)
         return re.stringByReplacingMatches(in: s, range: range, withTemplate: "")
     }

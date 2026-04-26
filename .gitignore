@@ -15,8 +15,10 @@ active-config.json
 
 # Xcode
 app/build/
+app/build-release/
 app/DerivedData/
-app/AwgRoute.xcodeproj/      # генерится xcodegen-ом из project.yml
+# xcodeproj генерится xcodegen-ом из project.yml — не коммитить
+app/AwgRoute.xcodeproj/
 *.xcuserstate
 xcuserdata/
 **/*.xcodeproj/project.xcworkspace/xcuserdata/

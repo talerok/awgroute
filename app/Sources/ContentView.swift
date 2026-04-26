@@ -7,6 +7,8 @@ struct ContentView: View {
                 .tabItem { Label("Tunnel", systemImage: "network") }
             RulesEditorView()
                 .tabItem { Label("Rules", systemImage: "list.bullet.rectangle") }
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
         }
     }
 }
