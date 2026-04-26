@@ -2,8 +2,9 @@ import Foundation
 
 /// Тонкий клиент к Clash API, который выставляет amnezia-box на 127.0.0.1:9090.
 final class ClashAPI {
+    private static let localhost = URL(string: "http://127.0.0.1:9090")!
     let base: URL
-    init(base: URL = URL(string: "http://127.0.0.1:9090")!) { self.base = base }
+    init(base: URL = ClashAPI.localhost) { self.base = base }
 
     struct Version: Decodable { let version: String; let premium: Bool? }
 

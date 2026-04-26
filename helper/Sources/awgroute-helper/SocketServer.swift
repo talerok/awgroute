@@ -107,20 +107,23 @@ final class SocketServer {
 
     private func handle(client fd: Int32) {
         let t0 = Date()
-        // Читаем до 64K. Команды у нас — короткий JSON, обычно < 1KB.
-        let bufSize = 64 * 1024
-        var buffer = [UInt8](repeating: 0, count: bufSize)
-        let n = buffer.withUnsafeMutableBytes { ptr -> Int in
-            return read(fd, ptr.baseAddress, ptr.count)
+        // Читаем до EOF — клиент делает shutdown(SHUT_WR) после отправки запроса,
+        // что гарантирует получение EOF даже если TCP разобьёт данные на чанки.
+        var request = Data()
+        var chunk = [UInt8](repeating: 0, count: 16 * 1024)
+        while true {
+            let n = chunk.withUnsafeMutableBytes { ptr -> Int in
+                read(fd, ptr.baseAddress, ptr.count)
+            }
+            if n > 0 { request.append(chunk, count: n) }
+            else { break }
         }
-        if n <= 0 {
+        if request.isEmpty {
             // Probe-connect (UI делает для проверки isInstalled) — короткий disconnect
-            // без данных. Логируем как debug, не warn.
+            // без данных.
             return
         }
         let tRead = Date()
-
-        let request = Data(buffer[0..<n])
         let response = dispatcher.handle(request)
         let tHandle = Date()
 

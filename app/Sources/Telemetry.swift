@@ -74,7 +74,8 @@ final class Telemetry: ObservableObject {
                 req.cachePolicy = .reloadIgnoringLocalCacheData
                 if let (data, _) = try? await URLSession.shared.data(for: req),
                    let ip = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !ip.isEmpty
+                   !ip.isEmpty, ip.count <= 45,   // max IPv6 = 39 chars
+                   ip.allSatisfy({ $0.isHexDigit || $0 == "." || $0 == ":" })
                 {
                     self?.externalIP = ip
                     return

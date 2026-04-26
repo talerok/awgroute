@@ -351,9 +351,8 @@ final class BackendController: ObservableObject {
         else { return }
         // Та же проверка что и в async stop(): не убивать чужой процесс под root.
         guard Self.processNameMatchesBackendStatic(pid) else { return }
-        let bash = "kill -TERM \(pid) 2>/dev/null; sleep 1; kill -KILL \(pid) 2>/dev/null; rm -f '\(pidPath)'; exit 0"
-        let escaped = bash.replacingOccurrences(of: "\\", with: "\\\\")
-                          .replacingOccurrences(of: "\"", with: "\\\"")
+        let bash = "kill -TERM \(pid) 2>/dev/null; sleep 1; kill -KILL \(pid) 2>/dev/null; rm -f \(quote(pidPath)); exit 0"
+        let escaped = escapeForAppleScriptString(bash)
         let script = "do shell script \"\(escaped)\" with administrator privileges"
         var err: NSDictionary?
         NSAppleScript(source: script)?.executeAndReturnError(&err)

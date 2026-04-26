@@ -24,7 +24,7 @@ struct ConnectionCoordinator {
             // внутренние DNS VPN-сервера, они часто тормозят на части доменов.
             // Берём первый публичный из .conf, fallback на 1.1.1.1.
             opts.remoteDNSServer = materialized.interface.dns
-                .first { !Self.isCGNAT($0) } ?? "1.1.1.1"
+                .first { Self.isPublicIPv4DNS($0) } ?? "1.1.1.1"
 
             // Smart-режим: наш sing-box TUN inbound + AWG endpoint, с пользовательскими
             // route-правилами. Native TUN режим (`useIntegratedTun=true`) оставлен в
@@ -55,12 +55,12 @@ struct ConnectionCoordinator {
         }
     }
 
-    /// `100.64.0.0/10` — CGNAT (Carrier-Grade NAT), типично используется
-    /// VPN-серверами для внутренних адресов (включая internal DNS).
-    private static func isCGNAT(_ ip: String) -> Bool {
+    /// Возвращает true если адрес — валидный публичный IPv4 DNS.
+    /// Отфильтровывает IPv6 (содержат ':'), CGNAT 100.64.0.0/10 (VPN-internal DNS).
+    private static func isPublicIPv4DNS(_ ip: String) -> Bool {
         let parts = ip.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 4 else { return false }
-        return parts[0] == 100 && parts[1] >= 64 && parts[1] <= 127
+        guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else { return false }
+        return !(parts[0] == 100 && (64...127).contains(parts[1]))
     }
 
     func disconnect() async {
