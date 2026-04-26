@@ -1,7 +1,6 @@
 import Foundation
 import AppKit
 import Network
-import IOKit
 
 /// Sleep/wake + network-change handler: при уходе в sleep гарантированно разрываем туннель,
 /// при wake — поднимаем заново с ожиданием сети и retry-логикой.
@@ -44,16 +43,13 @@ final class NetworkWatcher: ObservableObject {
         ) { [weak self] _ in
             // Assertion берём здесь — синхронно, до Task-диспатча. Иначе macOS может
             // уснуть в окне между выходом из callback и стартом Task на MainActor.
-            // IOPMAssertionCreate потокобезопасен, вызов из NSWorkspace-треда нормален.
-            var assertionID: IOPMAssertionID = 0
-            let claimed = IOPMAssertionCreateWithName(
-                kIOPMAssertionTypePreventSystemSleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                "AwgRoute: dropping VPN before sleep" as CFString,
-                &assertionID
-            ) == kIOReturnSuccess
+            // ProcessInfo.beginActivity потокобезопасен, вызов из NSWorkspace-треда нормален.
+            let activity = ProcessInfo.processInfo.beginActivity(
+                options: .idleSystemSleepDisabled,
+                reason: "AwgRoute: dropping VPN before sleep"
+            )
             Task { @MainActor in
-                defer { if claimed { IOPMAssertionRelease(assertionID) } }
+                defer { ProcessInfo.processInfo.endActivity(activity) }
                 await self?.handleWillSleep()
             }
         }
