@@ -26,22 +26,29 @@ enum KeychainStore {
 
     static func set(_ value: String, account: String) throws {
         let data = Data(value.utf8)
-        // Сначала удалить (upsert)
-        let delQuery: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
             kSecAttrAccount as String: account
         ]
-        SecItemDelete(delQuery as CFDictionary)
-
-        var addQuery = delQuery
+        // Атомарный upsert: сначала пробуем обновить, если не нашли — добавляем.
+        // В отличие от delete+add нет окна, в котором ключ отсутствует в Keychain.
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return }
+        guard updateStatus == errSecItemNotFound else {
+            throw Error.osStatus(updateStatus, op: "update")
+        }
+        var addQuery = query
         addQuery[kSecValueData as String] = data
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         // `kSecAttrSynchronizable: false` — повторно гарантируем no iCloud sync
         // (default уже false, но явная защита от случайного переключения).
         addQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else { throw Error.osStatus(status, op: "add") }
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        guard addStatus == errSecSuccess else { throw Error.osStatus(addStatus, op: "add") }
     }
 
     static func get(account: String) throws -> String? {
@@ -72,10 +79,11 @@ enum KeychainStore {
     }
 
     /// Удалить все секреты, относящиеся к profile.id.
-    static func deleteAll(forProfile id: UUID) {
+    /// `peerCount` — количество peers в профиле; чистим ровно столько PSK-слотов,
+    /// сколько могло быть записано при импорте.
+    static func deleteAll(forProfile id: UUID, peerCount: Int) {
         delete(account: ProfileSecretAccounts.privateKey(profileID: id))
-        // Удалить все peer-psk-<id>-* — итерируем до 16 (запас на multi-peer)
-        for i in 0..<16 {
+        for i in 0..<peerCount {
             delete(account: ProfileSecretAccounts.peerPSK(profileID: id, peerIndex: i))
         }
     }

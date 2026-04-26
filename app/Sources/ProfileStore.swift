@@ -64,7 +64,7 @@ final class ProfileStore: ObservableObject {
 
         // Rollback на любую ошибку до return — иначе orphan'ы в Keychain.
         var success = false
-        defer { if !success { KeychainStore.deleteAll(forProfile: id) } }
+        defer { if !success { KeychainStore.deleteAll(forProfile: id, peerCount: parsed.peers.count) } }
 
         try KeychainStore.set(parsed.interface.privateKey, account: ProfileSecretAccounts.privateKey(profileID: id))
         for (i, peer) in parsed.peers.enumerated() {
@@ -103,8 +103,12 @@ final class ProfileStore: ObservableObject {
 
     func delete(_ profile: Profile) throws {
         let url = dir.appendingPathComponent("\(profile.id.uuidString).json")
-        try? FileManager.default.removeItem(at: url)
-        KeychainStore.deleteAll(forProfile: profile.id)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let e as CocoaError where e.code == .fileNoSuchFile {
+            // Файл уже удалён извне — всё равно чистим Keychain
+        }
+        KeychainStore.deleteAll(forProfile: profile.id, peerCount: profile.config.peers.count)
         if activeID == profile.id { activeID = nil }
         reload()
     }
@@ -113,7 +117,13 @@ final class ProfileStore: ObservableObject {
     func materializedConfig(for profile: Profile) throws -> AwgConfig {
         var cfg = profile.config
         if cfg.interface.privateKey == Self.keychainSentinel {
-            cfg.interface.privateKey = (try KeychainStore.get(account: ProfileSecretAccounts.privateKey(profileID: profile.id))) ?? ""
+            guard let key = try KeychainStore.get(account: ProfileSecretAccounts.privateKey(profileID: profile.id)) else {
+                throw NSError(
+                    domain: "AwgRoute.ProfileStore", code: Int(errSecItemNotFound),
+                    userInfo: [NSLocalizedDescriptionKey: "Private key not found in Keychain for '\(profile.name)'. Re-import the profile."]
+                )
+            }
+            cfg.interface.privateKey = key
         }
         for i in cfg.peers.indices {
             if cfg.peers[i].presharedKey == Self.keychainSentinel {

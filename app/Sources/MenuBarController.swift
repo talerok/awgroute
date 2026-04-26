@@ -145,13 +145,13 @@ private extension NSMenuItem {
 private extension NSImage {
     /// Перекрасить SF-symbol в нужный цвет.
     func tinted(with color: NSColor) -> NSImage {
-        guard let copy = self.copy() as? NSImage else { return self }
-        copy.lockFocus()
-        color.set()
-        let rect = NSRect(origin: .zero, size: copy.size)
-        rect.fill(using: .sourceAtop)
-        copy.unlockFocus()
-        copy.isTemplate = false
-        return copy
+        let result = NSImage(size: size, flipped: false) { rect in
+            self.draw(in: rect)
+            color.setFill()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        result.isTemplate = false
+        return result
     }
 }
