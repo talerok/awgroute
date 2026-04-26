@@ -1,5 +1,6 @@
 # Build artifacts
 backend/amnezia-box
+helper/awgroute-helper
 backend/.cache/
 backend/src/
 dist/
