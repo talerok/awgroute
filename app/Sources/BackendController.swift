@@ -140,7 +140,8 @@ final class BackendController: ObservableObject {
         // Дать ему ещё немного времени на инициализацию TUN
         try? await Task.sleep(nanoseconds: 300_000_000)
         if !processIsAlive(pid) {
-            status = .error("amnezia-box exited immediately (см. логи)")
+            let detail = Self.extractLastFatal() ?? "see ~/Library/Logs/AwgRoute/amnezia-box.log"
+            status = .error("amnezia-box exited: \(detail)")
             return
         }
         status = .running(pid: pid)
@@ -191,11 +192,12 @@ final class BackendController: ObservableObject {
         // процессу с именем amnezia-box. Без этой проверки злонамеренный процесс
         // может записать в наш PID-файл произвольный pid (например, sshd) и при
         // следующем Disconnect мы убьём его как root.
+        //
+        // ВАЖНО: PID-файл НЕ удаляем — иначе при ложном срабатывании проверки
+        // (TCC-ограничения, баги) мы навсегда потеряем след живого backend, и он
+        // продолжит держать utun-интерфейс, ломая последующие Connect-ы.
         guard processNameMatchesBackend(pid) else {
-            status = .error("PID \(pid) does not belong to amnezia-box (refusing to kill).")
-            try? FileManager.default.removeItem(at: Paths.pidFile)
-            stopLogTailer()
-            stopLogRotationTimer()
+            status = .error("PID \(pid) does not belong to amnezia-box (refusing to kill). Run `sudo kill \(pid)` manually.")
             return
         }
 
@@ -315,23 +317,53 @@ final class BackendController: ObservableObject {
         kill(pid, 0) == 0 || errno == EPERM
     }
 
+    /// Извлечь последнюю FATAL-строку из хвоста backend-лога. Используется когда
+    /// процесс умер сразу после старта: вместо абстрактного "exited immediately"
+    /// показываем пользователю реальную причину (типично — кривой конфиг).
+    private static func extractLastFatal() -> String? {
+        let url = Paths.backendLog
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        let tailSize = UInt64(min(Int(size), 64 * 1024))
+        try? handle.seek(toOffset: size - tailSize)
+        guard let data = try? handle.read(upToCount: Int(tailSize)),
+              let text = String(data: data, encoding: .utf8)
+        else { return nil }
+        for line in text.split(separator: "\n").reversed() where line.contains("FATAL") {
+            let cleaned = stripANSI(String(line))
+            return cleaned.count > 250 ? String(cleaned.prefix(250)) + "…" : cleaned
+        }
+        return nil
+    }
+
+    /// Лог backend цветной (ANSI escape \e[...m) — для UI-строки нужно убрать.
+    private static func stripANSI(_ s: String) -> String {
+        let pattern = "\u{1b}\\[[0-9;]*m"
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        let range = NSRange(s.startIndex..<s.endIndex, in: s)
+        return re.stringByReplacingMatches(in: s, range: range, withTemplate: "")
+    }
+
     private func processNameMatchesBackend(_ pid: Int32) -> Bool {
         Self.processNameMatchesBackendStatic(pid)
     }
 
-    /// Защита от подмены PID-файла. `proc_name(...)` возвращает comm-имя процесса
-    /// (макс 16 байт без расширения, например "amnezia-box"). Если PID был переписан
-    /// на чужой процесс — имя не совпадёт, и мы не отправим ему kill под sudo.
-    /// Static-версия для использования из nonisolated stopBlocking().
+    /// Защита от подмены PID-файла: проверяем что процесс — действительно amnezia-box,
+    /// а не переиспользованный PID чужого процесса (например sshd под root).
+    ///
+    /// Используем `proc_pidpath` (полный путь к exec), а НЕ `proc_name` (comm-имя):
+    /// на macOS 26 Tahoe `proc_name` возвращает 0 для root-процесса при запросе из
+    /// user-процесса (TCC/sandbox режут comm cross-user). `proc_pidpath` работает.
     nonisolated fileprivate static func processNameMatchesBackendStatic(_ pid: Int32) -> Bool {
-        // proc_name пишет до 2*MAXCOMLEN+1 = 33 байт по доке Darwin; берём с запасом.
-        var nameBuf = [CChar](repeating: 0, count: 256)
-        let n = proc_name(pid, &nameBuf, UInt32(nameBuf.count))
+        var pathBuf = [CChar](repeating: 0, count: 4096)
+        let n = proc_pidpath(pid, &pathBuf, UInt32(pathBuf.count))
         guard n > 0 else { return false }
-        let name = String(cString: nameBuf)
-        // amnezia-box на macOS comm обрезается до 15 символов: "amnezia-box" (11 chars) — влезает.
-        // Префиксная проверка — на случай возможного suffix'а от менеджеров запуска.
-        return name == "amnezia-box" || name.hasPrefix("amnezia-box")
+        let path = String(cString: pathBuf)
+        // Принимаем как "наш" процесс если basename = "amnezia-box". Полный путь
+        // обычно вида /Applications/AwgRoute.app/Contents/Resources/amnezia-box,
+        // но не привязываемся жёстко — для DEV-сборок путь может отличаться.
+        return (path as NSString).lastPathComponent == "amnezia-box"
     }
 }
 
