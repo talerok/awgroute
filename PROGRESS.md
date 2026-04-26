@@ -12,8 +12,14 @@
 - [ ] **Ручная проверка:** `sudo amnezia-box run -c …` с реальным сервером — требует эскалации и реального endpoint, оставлено пользователю (см. README)
 - [ ] **Ручная проверка:** Clash API `/version` — после ручного запуска
 
-## Этап 1 — AwgConfig
-не начато
+## Этап 1 — AwgConfig ✅
+
+- [x] Swift Package `shared/` (target `AwgConfig`, executable `awgconfgen`)
+- [x] Структуры `AwgConfig.Interface`, `AwgConfig.Peer` со всеми полями PLAN.md (минус `J1-J3/Itime` — их нет в `option/awg.go`, фиксируем через warnings)
+- [x] INI-парсер без зависимостей, поддерживает `[Interface]`/`[Peer]`*N, IPv6 endpoint в `[...]`, лидирующие комментарии `#`/`;`
+- [x] Генератор endpoint-JSON и полного конфига с merging пользовательских правил (sniff/hijack-dns подставляются автоматически, `final: "vpn"` → актуальный тег)
+- [x] 16/16 unit-тестов зелёные
+- [x] End-to-end: `awgconfgen` на всех 6 фикстурах → `amnezia-box check` exit 0
 
 ## Этап 2 — BackendController
 не начато
