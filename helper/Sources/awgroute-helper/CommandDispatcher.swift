@@ -105,7 +105,7 @@ final class CommandDispatcher {
     /// - находится в /Users/<owner>/Library/Caches/AwgRoute/,
     /// - не симлинк (чтобы нельзя было подсунуть симлинк на /etc/passwd),
     /// - существует как regular file.
-    /// Возвращает «канонизированный» путь через resolvingSymlinksInPath, если все проверки прошли.
+    /// Возвращает путь без изменений, если все проверки прошли (симлинки явно отвергаются выше).
     private func validateConfigPath(_ path: String) -> String? {
         guard path.hasPrefix("/") else { return nil }
         guard !path.contains("..") else { return nil }

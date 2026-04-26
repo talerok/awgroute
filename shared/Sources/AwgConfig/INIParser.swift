@@ -20,7 +20,9 @@ struct INIParser {
         var sections: [Section] = []
         var currentSection: Section? = nil
 
-        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" })
+        // Split on \n and \r individually. CRLF files (\r\n) produce an extra
+        // empty element between the two separators, which is harmlessly skipped below.
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r" })
         for (idx, raw) in lines.enumerated() {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }

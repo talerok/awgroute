@@ -10,6 +10,7 @@ struct TunnelView: View {
     @EnvironmentObject var rules: RulesStore
     @EnvironmentObject var telemetry: Telemetry
     @State private var importError: String?
+    @State private var deleteError: String?
 
     var body: some View {
         NavigationSplitView {
@@ -21,6 +22,11 @@ struct TunnelView: View {
                isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } }),
                presenting: importError) { _ in
             Button("OK") { importError = nil }
+        } message: { msg in Text(msg) }
+        .alert("Delete failed",
+               isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } }),
+               presenting: deleteError) { _ in
+            Button("OK") { deleteError = nil }
         } message: { msg in Text(msg) }
         .onDrop(of: [.fileURL], isTargeted: nil) { handleDrop(providers: $0) }
     }
@@ -52,7 +58,8 @@ struct TunnelView: View {
                         .tag(p.id)
                         .contextMenu {
                             Button(role: .destructive) {
-                                try? profiles.delete(p)
+                                do { try profiles.delete(p) }
+                                catch { deleteError = error.localizedDescription }
                             } label: { Label("Delete", systemImage: "trash") }
                         }
                     }
@@ -171,7 +178,7 @@ struct TunnelView: View {
                 }
                 .background(Color(NSColor.textBackgroundColor))
                 .border(.separator)
-                .onChange(of: backend.lines.count) { newValue in
+                .onChangeCompat(of: backend.lines.count) { newValue in
                     if newValue > 0 { proxy.scrollTo(newValue - 1, anchor: .bottom) }
                 }
             }
@@ -273,5 +280,19 @@ struct TunnelView: View {
             handled = true
         }
         return handled
+    }
+}
+
+// MARK: - onChange backport
+// macOS 13: onChange(of:perform:) — deprecated in macOS 14.
+// macOS 14+: onChange(of:) { old, new in } — new two-parameter form.
+private extension View {
+    @ViewBuilder
+    func onChangeCompat<V: Equatable>(of value: V, _ action: @escaping (V) -> Void) -> some View {
+        if #available(macOS 14.0, *) {
+            self.onChange(of: value) { _, new in action(new) }
+        } else {
+            self.onChange(of: value, perform: action)
+        }
     }
 }
