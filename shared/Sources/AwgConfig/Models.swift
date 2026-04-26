@@ -5,7 +5,7 @@ import Foundation
 /// Источник правды по полям AWG-обфускации — `backend/src/option/awg.go`.
 /// Поля `j1-j3`, `itime`, прочие "неизвестные ключи" из `.conf` сохраняются
 /// в `interface.unknown` и игнорируются генератором (с предупреждением через `warnings`).
-public struct AwgConfig: Equatable, Sendable {
+public struct AwgConfig: Equatable, Sendable, Codable {
     public var interface: Interface
     public var peers: [Peer]
     /// Ключи из `[Interface]`, которых нет в нашей схеме. Полезно для логов.
@@ -17,7 +17,7 @@ public struct AwgConfig: Equatable, Sendable {
         self.warnings = warnings
     }
 
-    public struct Interface: Equatable, Sendable {
+    public struct Interface: Equatable, Sendable, Codable {
         // ── базовое WireGuard ──
         public var address: [String]            // ["10.8.0.2/24", "fd00::2/64"]
         public var privateKey: String           // base64
@@ -66,7 +66,7 @@ public struct AwgConfig: Equatable, Sendable {
         }
     }
 
-    public struct Peer: Equatable, Sendable {
+    public struct Peer: Equatable, Sendable, Codable {
         public var publicKey: String                 // base64
         public var presharedKey: String?             // base64
         public var endpointHost: String              // IP или domain

@@ -34,8 +34,20 @@
 - [x] Сборка `xcodebuild` зелёная, .app запускается без runtime-ошибок
 - [ ] **Ручная проверка (требует UI и реального сервера):** Start/Stop с настоящим `.conf`, переживание перезапуска GUI
 
-## Этап 3 — GUI: профили
-не начато
+## Этап 3 — GUI: профили ✅
+
+- [x] `Profile` Codable + `ProfileStore` (CRUD на `~/Library/Application Support/AwgRoute/profiles/<id>.json`)
+- [x] `KeychainStore` (`kSecClassGenericPassword`, service=`dev.awgroute.profile-private-key`, `accessibleAfterFirstUnlock`); accounts `interface-pk-<id>` и `peer-psk-<id>-<i>`
+- [x] Sentinel-маркер `<keychain-ref>` в JSON-метаданных вместо реальных секретов; материализация при connect
+- [x] `ConnectionCoordinator`: профиль → `materializedConfig` → `AwgJSONGenerator.fullConfigJSON` → `Paths.activeConfig` → `backend.start`
+- [x] `ContentView` переписан на `NavigationSplitView`: sidebar со списком профилей, detail с метаданными и кнопкой Connect/Disconnect
+- [x] Импорт через `NSOpenPanel` и drag-and-drop
+- [x] Удаление профиля + cleanup Keychain
+- [x] Просмотр read-only с маскированными ключами
+- [x] Активный профиль помечен ✓; UserDefaults persists `activeProfileID`
+- [x] Переключение активного профиля через `coordinator.switchTo(profile:)` — graceful stop → start, если был запущен
+- [x] AwgConfig теперь Codable, 16/16 тестов зелёные, .app собирается и запускается без runtime-ошибок
+- [ ] **Ручная UI-проверка:** импорт реального .conf, Keychain Access показывает айтемы, переключение между 2+ профилями
 
 ## Этап 4 — GUI: редактор правил
 не начато

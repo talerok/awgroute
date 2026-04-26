@@ -4,12 +4,14 @@ import SwiftUI
 struct AwgRouteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var backend = BackendController()
+    @StateObject private var profiles = ProfileStore()
 
     var body: some Scene {
         WindowGroup("AwgRoute") {
             ContentView()
                 .environmentObject(backend)
-                .frame(minWidth: 600, minHeight: 400)
+                .environmentObject(profiles)
+                .frame(minWidth: 800, minHeight: 540)
                 .onAppear {
                     appDelegate.backend = backend
                 }
