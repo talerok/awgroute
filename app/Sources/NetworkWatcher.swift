@@ -150,23 +150,29 @@ final class NetworkWatcher: ObservableObject {
     /// Ждём пока NWPathMonitor не скажет satisfied, или пока не истечёт timeout.
     private func waitForNetwork(timeout: TimeInterval) async {
         if lastPathSatisfied { return }
-        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+        await withTaskGroup(of: Void.self) { group in
             let monitor = NWPathMonitor()
-            let queue = DispatchQueue(label: "dev.awgroute.netwait", qos: .utility)
-            var done = false
-            monitor.pathUpdateHandler = { path in
-                guard !done, path.status == .satisfied else { return }
-                done = true
-                monitor.cancel()
-                cont.resume()
+
+            // Task 1: ждём satisfied от NWPathMonitor.
+            group.addTask {
+                let stream = AsyncStream<Void> { cont in
+                    monitor.pathUpdateHandler = { path in
+                        if path.status == .satisfied { cont.yield(()); cont.finish() }
+                    }
+                    cont.onTermination = { _ in monitor.cancel() }
+                    monitor.start(queue: DispatchQueue(label: "dev.awgroute.netwait", qos: .utility))
+                }
+                for await _ in stream { break }
             }
-            monitor.start(queue: queue)
-            queue.asyncAfter(deadline: .now() + timeout) {
-                guard !done else { return }
-                done = true
-                monitor.cancel()
-                cont.resume()
+
+            // Task 2: таймаут.
+            group.addTask {
+                try? await Task.sleep(for: .seconds(timeout))
             }
+
+            // Первый завершившийся таск выигрывает, отменяем второй.
+            await group.next()
+            group.cancelAll()
         }
     }
 }
