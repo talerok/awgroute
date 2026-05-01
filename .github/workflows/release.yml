@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-14   # Apple Silicon runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Build backend (amnezia-box)
+        run: backend/build.sh
+
+      - name: Build helper (awgroute-helper)
+        run: helper/build.sh
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd app && xcodegen generate
+
+      - name: Build app (Release)
+        run: |
+          xcodebuild -project app/AwgRoute.xcodeproj \
+            -scheme AwgRoute \
+            -configuration Release \
+            -derivedDataPath app/build-release \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Create DMG
+        run: |
+          APP_PATH="app/build-release/Build/Products/Release/AwgRoute.app"
+          DMG_NAME="AwgRoute-${{ steps.version.outputs.tag }}.dmg"
+
+          # Создаём временную директорию для содержимого DMG
+          mkdir -p dmg-content
+          cp -R "${APP_PATH}" dmg-content/
+
+          # Создаём DMG
+          hdiutil create -volname "AwgRoute" \
+            -srcfolder dmg-content \
+            -ov -format UDZO \
+            "${DMG_NAME}"
+
+          rm -rf dmg-content
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "AwgRoute-*.dmg"
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
