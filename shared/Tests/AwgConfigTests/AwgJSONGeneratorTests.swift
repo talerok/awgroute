@@ -187,6 +187,55 @@ final class AwgJSONGeneratorTests: XCTestCase {
         XCTAssertEqual(a, b, "warnings не учитываются в Equatable")
     }
 
+    func testTunMTUDefaultsTo1376WhenProfileHasNone() throws {
+        // minimal не задаёт MTU → должен использоваться дефолт options.tunMTU = 1376
+        // (то же значение, что и нативный AmneziaVPN). 1408 раньше ломал
+        // Chromium-handshake через gVisor netstack.
+        let cfg = try AwgConfigParser.parse(try loadFixture("minimal"))
+        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg)
+        let d = try parseToDict(json)
+        let inbounds = d["inbounds"] as! [[String: Any]]
+        XCTAssertEqual(inbounds[0]["mtu"] as? Int, 1376)
+    }
+
+    func testTunMTUFollowsProfileMTU() throws {
+        // full_awg задаёт MTU=1280 → TUN тоже 1280 (не больше AWG MTU).
+        let cfg = try AwgConfigParser.parse(try loadFixture("full_awg"))
+        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg)
+        let d = try parseToDict(json)
+        let inbounds = d["inbounds"] as! [[String: Any]]
+        XCTAssertEqual(inbounds[0]["mtu"] as? Int, 1280)
+    }
+
+    func testRemoteDNSTakenFromProfile() throws {
+        // full_awg имеет DNS = 1.1.1.1, 1.0.0.1 → remote DNS = 1.1.1.1 (первый).
+        // Берём из профиля, а не из options.remoteDNSServer, т.к. VPN-провайдеры
+        // часто используют внутренний DNS (100.64.0.1 и т.п.), доступный
+        // только через туннель.
+        let cfg = try AwgConfigParser.parse(try loadFixture("full_awg"))
+        var opts = AwgJSONGenerator.Options()
+        opts.remoteDNSServer = "9.9.9.9" // должен быть проигнорирован — DNS из профиля приоритетнее
+        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts)
+        let d = try parseToDict(json)
+        let dns = d["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        let remote = servers.first { ($0["tag"] as? String) == "remote" }
+        XCTAssertEqual(remote?["server"] as? String, "1.1.1.1")
+    }
+
+    func testRemoteDNSFallbackToOptionsWhenProfileHasNone() throws {
+        // minimal не задаёт DNS → fallback на options.remoteDNSServer.
+        let cfg = try AwgConfigParser.parse(try loadFixture("minimal"))
+        var opts = AwgJSONGenerator.Options()
+        opts.remoteDNSServer = "8.8.8.8"
+        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts)
+        let d = try parseToDict(json)
+        let dns = d["dns"] as! [String: Any]
+        let servers = dns["servers"] as! [[String: Any]]
+        let remote = servers.first { ($0["tag"] as? String) == "remote" }
+        XCTAssertEqual(remote?["server"] as? String, "8.8.8.8")
+    }
+
     func testIPv6PeerEndpoint() throws {
         let cfg = try AwgConfigParser.parse(try loadFixture("ipv6_endpoint"))
         let json = try AwgJSONGenerator.endpointJSON(from: cfg)

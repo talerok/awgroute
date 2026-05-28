@@ -17,8 +17,12 @@ public enum AwgJSONGenerator {
         public var tunInterfaceName: String = "utun123"
         /// Внутренний IP TUN-интерфейса (не пересекается с обычным LAN).
         public var tunAddress: String = "172.19.0.1/30"
-        /// MTU для TUN inbound (обычно 1408).
-        public var tunMTU: UInt32 = 1408
+        /// MTU для TUN inbound. 1376 — то же значение, что выставляет нативный
+        /// AmneziaVPN на macOS. Outer-пакет: 1376 + WG(48) + UDP/IP(28) = 1452,
+        /// помещается в стандартный 1500-MTU Ethernet с запасом 48 байт под
+        /// промежуточные туннели. Завышение до 1408 ломало Chromium-handshake
+        /// на gVisor netstack (см. PR с этим фиксом).
+        public var tunMTU: UInt32 = 1376
         /// Адрес Clash API.
         public var clashAPIListen: String = "127.0.0.1:9090"
         /// Порядок: ipv4_only / prefer_ipv4 / etc.
@@ -61,11 +65,17 @@ public enum AwgJSONGenerator {
         }
         let endpoint = endpointDict(from: config, options: options)
 
+        // Remote DNS — берём первый сервер из `[Interface] DNS =` профиля
+        // (это обычно внутренний DNS VPN-провайдера, доступный через туннель —
+        // надёжнее публичного резолвера). Если в профиле DNS не задан —
+        // fallback на `options.remoteDNSServer` (default 1.1.1.1).
+        let effectiveRemoteDNS = config.interface.dns.first ?? options.remoteDNSServer
+
         // userDNS — опциональная секция `dns` из пользовательского rules.json
         // (Variant B). Поля, которые пользователь не указал, добираются из
         // дефолтного DNS-словаря, чтобы не потерять `local` сервер и др.
         var dns: [String: Any] = userDNS ?? [:]
-        let defaults = defaultDNSDict(options: options)
+        let defaults = defaultDNSDict(options: options, remoteServer: effectiveRemoteDNS)
         if dns["servers"]  == nil { dns["servers"]  = defaults["servers"] }
         if dns["final"]    == nil { dns["final"]    = defaults["final"] }
         if dns["rules"]    == nil { dns["rules"]    = defaults["rules"] }
@@ -183,13 +193,13 @@ public enum AwgJSONGenerator {
         return endpoint
     }
 
-    private static func defaultDNSDict(options: Options) -> [String: Any] {
+    private static func defaultDNSDict(options: Options, remoteServer: String) -> [String: Any] {
         // `local` сервер (тип "local") использует системный resolver. У него НЕТ
         // detour — sing-box 1.12 ругается «detour to an empty direct outbound makes
         // no sense», т.к. direct в 1.12 — не явный outbound, а route-action.
         [
             "servers": [
-                ["type": "udp",   "tag": "remote", "server": options.remoteDNSServer, "detour": options.endpointTag],
+                ["type": "udp",   "tag": "remote", "server": remoteServer, "detour": options.endpointTag],
                 ["type": "local", "tag": "local"]
             ],
             "rules": [],
