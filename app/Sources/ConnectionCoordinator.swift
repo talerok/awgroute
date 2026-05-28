@@ -48,7 +48,22 @@ struct ConnectionCoordinator {
                 [.posixPermissions: 0o600],
                 ofItemAtPath: Paths.activeConfig.path
             )
-            await backend.start(configPath: Paths.activeConfig.path)
+
+            // System DNS override (через helper, scutil-based). Цель:
+            // 1. macOS-приложения резолвят через VPN-DNS, а не через ISP-роутер,
+            //    который часто отдаёт «отравленные» ответы для известных доменов
+            //    (например, 8.6.112.0 вместо реального Cloudflare IP — Chrome зависает,
+            //    Firefox с DoH работает).
+            // 2. Apple iCloud Private Relay выключается при non-default DNS — иначе
+            //    он подменяет destinations на свои Apple-edge endpoints, которые
+            //    через VPN не подключаются.
+            //
+            // Порядок: первым — DNS из профиля (внутренний VPN-резолвер если есть,
+            // либо публичный); дальше публичные fallback'и (1.1.1.1, 8.8.8.8),
+            // чтобы при задержке backend-start или временной потере VPN резолвинг
+            // не вставал колом — публичные доступны напрямую.
+            let systemDNS = Self.buildSystemDNSList(profileDNS: materialized.interface.dns)
+            await backend.start(configPath: Paths.activeConfig.path, dnsServers: systemDNS)
         } catch {
             // Без этого пользователь жмёт Connect и думает что приложение зависло.
             backend.reportError("connect failed: \(error.localizedDescription)")
@@ -61,6 +76,28 @@ struct ConnectionCoordinator {
         let parts = ip.split(separator: ".").compactMap { Int($0) }
         guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else { return false }
         return !(parts[0] == 100 && (64...127).contains(parts[1]))
+    }
+
+    /// Собирает DNS-список для system override через helper. Логика:
+    /// - первым идут серверы из профиля (порядок как в .conf) — внутренний VPN-DNS
+    ///   и/или указанные провайдером публичные;
+    /// - в конец — публичные fallback'и (1.1.1.1, 8.8.8.8), если они там ещё не были.
+    ///   Они нужны на случай задержки старта backend'а или временной потери VPN:
+    ///   внутренний DNS без работающего туннеля не отвечает, и system без резолвинга.
+    /// IPv6-адреса оставляем как есть — scutil умеет их применять, macOS ходит к ним.
+    static func buildSystemDNSList(profileDNS: [String]) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        for dns in profileDNS {
+            let trimmed = dns.trimmingCharacters(in: .whitespaces)
+            if !trimmed.isEmpty, seen.insert(trimmed).inserted {
+                result.append(trimmed)
+            }
+        }
+        for fallback in ["1.1.1.1", "8.8.8.8"] where seen.insert(fallback).inserted {
+            result.append(fallback)
+        }
+        return result
     }
 
     func disconnect() async {

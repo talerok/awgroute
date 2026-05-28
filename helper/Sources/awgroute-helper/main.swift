@@ -33,6 +33,13 @@ let backend = BackendManager(
 // по PID-файлу, чтобы status() возвращал корректное состояние и мы могли его остановить.
 backend.adoptExisting()
 
-let dispatcher = CommandDispatcher(backend: backend, ownerUser: ownerUser)
+let dnsManager = DNSManager()
+// Если helper упал/был убит с применённым DNS-override'ом, но backend не выжил —
+// восстанавливаем system DNS. Иначе пользователь живёт с overridden DNS до reboot'а
+// (State:/...DNS сбрасывается на reboot, но это лишний день без рабочего сетевого
+// fallback'а если 100.64.0.1 был там).
+dnsManager.cleanupOrphanIfBackendDead(backend.status().running)
+
+let dispatcher = CommandDispatcher(backend: backend, dnsManager: dnsManager, ownerUser: ownerUser)
 let server = SocketServer(ownerUID: ownerUID, dispatcher: dispatcher)
 server.run()

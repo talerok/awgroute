@@ -207,27 +207,15 @@ final class AwgJSONGeneratorTests: XCTestCase {
         XCTAssertEqual(inbounds[0]["mtu"] as? Int, 1280)
     }
 
-    func testRemoteDNSTakenFromProfile() throws {
-        // full_awg имеет DNS = 1.1.1.1, 1.0.0.1 → remote DNS = 1.1.1.1 (первый).
-        // Берём из профиля, а не из options.remoteDNSServer, т.к. VPN-провайдеры
-        // часто используют внутренний DNS (100.64.0.1 и т.п.), доступный
-        // только через туннель.
-        let cfg = try AwgConfigParser.parse(try loadFixture("full_awg"))
+    func testRemoteDNSUsesOptionsValue() throws {
+        // Выбор DNS — ответственность вызывающего слоя (ConnectionCoordinator),
+        // там умная логика пропуска CGNAT-DNS (внутренних VPN-резолверов,
+        // которые часто тормозят на части доменов). Генератор просто
+        // берёт options.remoteDNSServer как есть, не лезет в config.interface.dns.
+        // Этот тест документирует это разделение ответственности.
+        let cfg = try AwgConfigParser.parse(try loadFixture("full_awg")) // имеет DNS=1.1.1.1,1.0.0.1
         var opts = AwgJSONGenerator.Options()
-        opts.remoteDNSServer = "9.9.9.9" // должен быть проигнорирован — DNS из профиля приоритетнее
-        let json = try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts)
-        let d = try parseToDict(json)
-        let dns = d["dns"] as! [String: Any]
-        let servers = dns["servers"] as! [[String: Any]]
-        let remote = servers.first { ($0["tag"] as? String) == "remote" }
-        XCTAssertEqual(remote?["server"] as? String, "1.1.1.1")
-    }
-
-    func testRemoteDNSFallbackToOptionsWhenProfileHasNone() throws {
-        // minimal не задаёт DNS → fallback на options.remoteDNSServer.
-        let cfg = try AwgConfigParser.parse(try loadFixture("minimal"))
-        var opts = AwgJSONGenerator.Options()
-        opts.remoteDNSServer = "8.8.8.8"
+        opts.remoteDNSServer = "8.8.8.8" // не дублирует ничего из cfg.interface.dns
         let json = try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts)
         let d = try parseToDict(json)
         let dns = d["dns"] as! [String: Any]

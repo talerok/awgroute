@@ -94,7 +94,7 @@ final class BackendController: ObservableObject {
 
     // MARK: - Start
 
-    func start(configPath: String) async {
+    func start(configPath: String, dnsServers: [String] = []) async {
         // Из .error разрешаем стартовать (UX: после ошибки кнопка должна работать).
         // Из .starting/.running/.stopping — нет, это уже в процессе.
         switch status {
@@ -128,7 +128,10 @@ final class BackendController: ObservableObject {
                 returning: HelperClient.Response?.self
             ) { group in
                 group.addTask {
-                    return try? await HelperClient.send(.start(configPath: configPath), timeout: 15)
+                    return try? await HelperClient.send(
+                        .start(configPath: configPath, dnsServers: dnsServers),
+                        timeout: 15
+                    )
                 }
                 group.addTask {
                     // Поллинг status. Даём helper'у фору 500ms на быстрый ответ.
@@ -383,7 +386,7 @@ final class BackendController: ObservableObject {
     /// Атомарный рестарт через helper'а — для wake/leak-recovery (NetworkWatcher).
     /// Без helper'а — последовательно stop+start (два sudo-промпта; авто-recovery без helper'а
     /// вообще теряет смысл, но fallback оставлен для ручного use-case).
-    func restart(configPath: String) async {
+    func restart(configPath: String, dnsServers: [String] = []) async {
         if HelperClient.isInstalled {
             switch status {
             case .stopping, .starting: return
@@ -391,7 +394,9 @@ final class BackendController: ObservableObject {
             }
             status = .starting
             do {
-                let resp = try await HelperClient.send(.restart(configPath: configPath))
+                let resp = try await HelperClient.send(
+                    .restart(configPath: configPath, dnsServers: dnsServers)
+                )
                 await applyHelperStartResponse(resp)
                 startLogTailerIfNeeded()
             } catch {
@@ -401,7 +406,7 @@ final class BackendController: ObservableObject {
         }
         // Legacy: два промпта — но это лучше чем дёргать пользователя auto-recovery'ем.
         await stop()
-        await start(configPath: configPath)
+        await start(configPath: configPath, dnsServers: dnsServers)
     }
 
     // MARK: - Internal

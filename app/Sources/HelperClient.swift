@@ -32,9 +32,9 @@ enum HelperClient {
     }
 
     enum Command {
-        case start(configPath: String)
+        case start(configPath: String, dnsServers: [String])
         case stop
-        case restart(configPath: String)
+        case restart(configPath: String, dnsServers: [String])
         case status
 
         fileprivate var json: Data {
@@ -42,10 +42,18 @@ enum HelperClient {
             // это проще и надёжнее, чем Codable с associated values.
             var dict: [String: Any] = [:]
             switch self {
-            case .start(let path):   dict["cmd"] = "start";   dict["configPath"] = path
-            case .stop:              dict["cmd"] = "stop"
-            case .restart(let path): dict["cmd"] = "restart"; dict["configPath"] = path
-            case .status:            dict["cmd"] = "status"
+            case .start(let path, let dns):
+                dict["cmd"] = "start"
+                dict["configPath"] = path
+                if !dns.isEmpty { dict["dnsServers"] = dns }
+            case .stop:
+                dict["cmd"] = "stop"
+            case .restart(let path, let dns):
+                dict["cmd"] = "restart"
+                dict["configPath"] = path
+                if !dns.isEmpty { dict["dnsServers"] = dns }
+            case .status:
+                dict["cmd"] = "status"
             }
             return (try? JSONSerialization.data(withJSONObject: dict, options: [])) ?? Data()
         }

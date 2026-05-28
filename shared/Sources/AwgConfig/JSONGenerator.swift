@@ -65,17 +65,15 @@ public enum AwgJSONGenerator {
         }
         let endpoint = endpointDict(from: config, options: options)
 
-        // Remote DNS — берём первый сервер из `[Interface] DNS =` профиля
-        // (это обычно внутренний DNS VPN-провайдера, доступный через туннель —
-        // надёжнее публичного резолвера). Если в профиле DNS не задан —
-        // fallback на `options.remoteDNSServer` (default 1.1.1.1).
-        let effectiveRemoteDNS = config.interface.dns.first ?? options.remoteDNSServer
-
         // userDNS — опциональная секция `dns` из пользовательского rules.json
         // (Variant B). Поля, которые пользователь не указал, добираются из
         // дефолтного DNS-словаря, чтобы не потерять `local` сервер и др.
+        //
+        // Выбор `options.remoteDNSServer` — ответственность вызывающего слоя
+        // (ConnectionCoordinator), там умная логика пропуска CGNAT-DNS. Генератор
+        // не лезет в config.interface.dns, чтобы не дублировать/перебивать её.
         var dns: [String: Any] = userDNS ?? [:]
-        let defaults = defaultDNSDict(options: options, remoteServer: effectiveRemoteDNS)
+        let defaults = defaultDNSDict(options: options)
         if dns["servers"]  == nil { dns["servers"]  = defaults["servers"] }
         if dns["final"]    == nil { dns["final"]    = defaults["final"] }
         if dns["rules"]    == nil { dns["rules"]    = defaults["rules"] }
@@ -193,13 +191,13 @@ public enum AwgJSONGenerator {
         return endpoint
     }
 
-    private static func defaultDNSDict(options: Options, remoteServer: String) -> [String: Any] {
+    private static func defaultDNSDict(options: Options) -> [String: Any] {
         // `local` сервер (тип "local") использует системный resolver. У него НЕТ
         // detour — sing-box 1.12 ругается «detour to an empty direct outbound makes
         // no sense», т.к. direct в 1.12 — не явный outbound, а route-action.
         [
             "servers": [
-                ["type": "udp",   "tag": "remote", "server": remoteServer, "detour": options.endpointTag],
+                ["type": "udp",   "tag": "remote", "server": options.remoteDNSServer, "detour": options.endpointTag],
                 ["type": "local", "tag": "local"]
             ],
             "rules": [],
