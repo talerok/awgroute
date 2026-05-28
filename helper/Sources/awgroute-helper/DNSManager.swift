@@ -6,10 +6,16 @@ import Darwin
 /// 2. Apple iCloud Private Relay автоматически выключается при «нестандартном» DNS,
 ///    поэтому не подменяет результаты резолвинга на свои edge-endpoints.
 ///
-/// Реализация: scutil-overrides на `State:/Network/Service/<primary>/DNS`.
-/// State — runtime-only namespace, сбрасывается на reboot: если helper упал
-/// с применённым override и не успел restore, пользователь не остаётся «без DNS»
-/// после следующей перезагрузки.
+/// Реализация: scutil-overrides на `Setup:/Network/Service/<primary>/DNS`.
+/// Почему Setup, а не State (хотя для VPN-runtime'а вроде логичнее State):
+/// - на современной macOS DHCP-клиент периодически перезаписывает
+///   `State:/.../DNS` ответом DHCP-сервера (typical TTL ~60 сек) — наш State
+///   override живёт минуту и тихо протухает, пользователь видит «опять Chrome
+///   виснет на сайтах», как будто override никогда и не применялся;
+/// - `Setup:` DHCP-клиент не трогает, mDNSResponder читает его как primary;
+/// - scutil `set Setup:...` без `commit` — runtime-only: prefs.plist не меняется,
+///   после reboot вернутся исходные настройки из System Settings UI. Это даёт
+///   ту же безопасность от «застрявшего» override'а, что и State.
 ///
 /// Backup исходного состояния хранится в /var/db/awgroute-helper/dns-backup.json
 /// для восстановления при stop и для cleanup'а orphan-override'ов при старте helper'а.
@@ -137,10 +143,10 @@ final class DNSManager {
         throw DNSError.primaryServiceNotFound(scutilOutput: out)
     }
 
-    /// Текущее содержимое State:/Network/Service/<id>/DNS.
+    /// Текущее содержимое Setup:/Network/Service/<id>/DNS.
     /// Возвращает noOverride если ключа нет (распространённый случай: DNS от DHCP).
     private func readCurrentState(serviceID: String) -> OriginalState {
-        let out = (try? runScutil("show State:/Network/Service/\(serviceID)/DNS\n")) ?? ""
+        let out = (try? runScutil("show Setup:/Network/Service/\(serviceID)/DNS\n")) ?? ""
         if out.contains("No such key") || out.trimmingCharacters(in: .whitespaces).isEmpty {
             return .noOverride
         }
@@ -174,7 +180,7 @@ final class DNSManager {
         let script = """
         d.init
         d.add ServerAddresses * \(addresses)
-        set State:/Network/Service/\(serviceID)/DNS
+        set Setup:/Network/Service/\(serviceID)/DNS
         quit
 
         """
@@ -182,7 +188,7 @@ final class DNSManager {
     }
 
     private func removeState(serviceID: String) throws {
-        _ = try runScutil("remove State:/Network/Service/\(serviceID)/DNS\nquit\n")
+        _ = try runScutil("remove Setup:/Network/Service/\(serviceID)/DNS\nquit\n")
     }
 
     private func runScutil(_ input: String) throws -> String {
