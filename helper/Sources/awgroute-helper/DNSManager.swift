@@ -30,40 +30,83 @@ final class DNSManager {
     }
 
     /// Применить DNS-серверы к primary network service. Запоминает исходное
-    /// состояние для последующего restore. Если backup уже существует
-    /// (например, smena сети с активным VPN) — overwriting'ом обновляет
-    /// и serviceID, и servers, не теряя ранее запомненное original.
+    /// состояние для последующего restore.
+    ///
+    /// Безопасность: каждый сервер валидируется через `inet_pton` как IPv4/IPv6.
+    /// Невалидные отбрасываются — иначе адрес с `\n` или другим control-char'ом
+    /// инжектится в scutil-DSL ("d.add ServerAddresses * <addr>") и помощник
+    /// выполнит произвольные scutil-команды. Helper не должен доверять app —
+    /// app получает DNS из импортированных .conf-профилей, потенциально
+    /// злонамеренных.
+    ///
+    /// Смена сети (primary service ID меняется): сначала восстанавливаем
+    /// override на старом service (иначе там останется наш DNS до reboot'а),
+    /// потом записываем backup для нового и применяем override на нём.
     func apply(servers: [String]) throws {
-        guard !servers.isEmpty else { return }
+        let validated = servers.filter { Self.isValidDNSAddress($0) }
+        guard !validated.isEmpty else {
+            throw DNSError.noValidServers(input: servers)
+        }
         let serviceID = try primaryServiceID()
 
-        // Если backup уже есть — original оставляем тот что есть (не перезаписываем
-        // нашими же overridden-значениями). serviceID обновляется на новый primary.
         let original: OriginalState
         if let existing = readBackup() {
-            original = existing.original
+            if existing.serviceID == serviceID {
+                // Тот же primary — original оставляем как есть (не перезаписываем
+                // нашими же overridden-значениями, если apply вызвали повторно).
+                original = existing.original
+            } else {
+                // Сменился primary (Wi-Fi → Ethernet и т.п.) — откатываем
+                // override на старом service, чтобы он не остался застрявшим
+                // там после disconnect/reboot.
+                Logger.shared.info("primary service changed \(existing.serviceID) → \(serviceID), restoring old override")
+                restoreOnService(serviceID: existing.serviceID, original: existing.original)
+                // Дальше для нового service читаем current state как baseline.
+                original = readCurrentState(serviceID: serviceID)
+            }
         } else {
             original = readCurrentState(serviceID: serviceID)
         }
 
         try saveBackup(Backup(serviceID: serviceID, original: original))
-        try setState(serviceID: serviceID, servers: servers)
+        try setState(serviceID: serviceID, servers: validated)
         flushDNSCache()
-        Logger.shared.info("DNS override applied: service=\(serviceID) servers=\(servers)")
+        Logger.shared.info("DNS override applied: service=\(serviceID) servers=\(validated)")
     }
 
     /// Восстановить исходные DNS. No-op если backup'а нет.
     func restore() {
         guard let backup = readBackup() else { return }
-        switch backup.original {
-        case .noOverride:
-            try? removeState(serviceID: backup.serviceID)
-        case .hadServers(let s):
-            try? setState(serviceID: backup.serviceID, servers: s)
-        }
+        restoreOnService(serviceID: backup.serviceID, original: backup.original)
         try? FileManager.default.removeItem(atPath: backupPath)
         flushDNSCache()
         Logger.shared.info("DNS override restored: service=\(backup.serviceID)")
+    }
+
+    /// Восстановить состояние конкретного service'а — без удаления backup-файла
+    /// и без flush'а кеша (вызывающий решает). Используется из apply при смене
+    /// primary service и из restore().
+    private func restoreOnService(serviceID: String, original: OriginalState) {
+        switch original {
+        case .noOverride:
+            try? removeState(serviceID: serviceID)
+        case .hadServers(let s):
+            try? setState(serviceID: serviceID, servers: s)
+        }
+    }
+
+    /// Валидация IP-адреса через inet_pton. Безопасна против injection в scutil-DSL:
+    /// невалидные строки (с newline, control-chars, посторонним текстом) inet_pton
+    /// отвергает. IPv4 и IPv6 оба поддерживаются.
+    private static func isValidDNSAddress(_ s: String) -> Bool {
+        // inet_pton — строгий парсер, но дополнительная защита от пустых строк
+        // и от "тихих" пропусков символов через UTF-8 nil-byte.
+        guard !s.isEmpty, !s.contains("\0") else { return false }
+        var v4 = in_addr()
+        if s.withCString({ inet_pton(AF_INET, $0, &v4) }) == 1 { return true }
+        var v6 = in6_addr()
+        if s.withCString({ inet_pton(AF_INET6, $0, &v6) }) == 1 { return true }
+        return false
     }
 
     /// Вызывается при старте helper'а. Если есть backup, но backend не запущен —
@@ -210,12 +253,15 @@ final class DNSManager {
 
 enum DNSError: Error, CustomStringConvertible {
     case primaryServiceNotFound(scutilOutput: String)
+    case noValidServers(input: [String])
 
     var description: String {
         switch self {
         case .primaryServiceNotFound(let out):
             let preview = out.prefix(200)
             return "primary network service not found in scutil output: \(preview)"
+        case .noValidServers(let input):
+            return "no valid IPv4/IPv6 addresses among DNS servers: \(input)"
         }
     }
 }
