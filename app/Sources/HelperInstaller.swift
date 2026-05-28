@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Darwin
+import CryptoKit
 
 /// Установка/деинсталляция awgroute-helper. Один AppleScript-prompt при enable
 /// (admin password) — дальше silent reconnect через `HelperClient`.
@@ -47,11 +48,30 @@ enum HelperInstaller {
         set { UserDefaults.standard.set(newValue, forKey: "dev.awgroute.helperInstallDeclined") }
     }
 
-    /// Запустить install-флоу один раз при старте приложения, если helper ещё не
-    /// установлен И пользователь не отказывался ранее. Вызывается из onAppear.
+    /// Запустить install-флоу при старте приложения. Два случая:
+    /// 1. Helper не установлен И пользователь не отказывался — пытаемся поставить.
+    /// 2. Helper установлен, но бинарь отличается от того что в app-bundle
+    ///    (после обновления .dmg). Тогда переустанавливаем — иначе старый helper
+    ///    не знает новых команд и приложение работает как будто фикса нет.
+    ///    Был реальный случай: пользователь обновил app с v0.2.0 до v0.3.x, helper
+    ///    остался от первой установки и тихо игнорировал новую команду `dnsServers`.
     /// Тихо ничего не делает в остальных случаях.
     static func installOnFirstLaunchIfNeeded() async {
-        if isInstalled { return }
+        if isInstalled {
+            // Helper стоит — проверяем не отстал ли он от bundled-версии.
+            guard needsUpgrade() else { return }
+            do {
+                try await install()
+                NSLog("[HelperInstaller] auto-upgrade completed")
+            } catch InstallError.userCancelled {
+                // На upgrade-кейсе userDeclined НЕ трогаем — это не первый install,
+                // и в Settings уже виден установленный helper. Просто оставляем как есть.
+                NSLog("[HelperInstaller] auto-upgrade cancelled by user")
+            } catch {
+                NSLog("[HelperInstaller] auto-upgrade failed: \(error)")
+            }
+            return
+        }
         if userDeclined { return }
         do {
             try await install()
@@ -64,6 +84,27 @@ enum HelperInstaller {
             // Пользователь увидит детали в Settings, если решит попробовать вручную.
             NSLog("[HelperInstaller] auto-install failed: \(error)")
         }
+    }
+
+    /// True если SHA256 bundled-бинаря не совпадает с тем что установлен в
+    /// /Library/PrivilegedHelperTools/. Возвращает false если что-то не удалось
+    /// прочитать — лучше не дёргать пользователя promt'ом из-за лишней
+    /// перестраховки.
+    private static func needsUpgrade() -> Bool {
+        guard let bundled = bundledHelper else { return false }
+        let installed = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/awgroute-helper")
+        guard
+            let bundledHash = sha256(of: bundled),
+            let installedHash = sha256(of: installed)
+        else {
+            return false
+        }
+        return bundledHash != installedHash
+    }
+
+    private static func sha256(of url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Установить helper. Один AppleScript-promt с administrator privileges.
