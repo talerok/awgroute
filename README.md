@@ -6,16 +6,24 @@
 
 - macOS 13+ (Apple Silicon — основная цель)
 - Xcode 16+
-- Go 1.23+ (для сборки backend) — `brew install go`
+- Go 1.25+ (для сборки backend; требование `amneziawg-go/v3`) — `brew install go`
 - `.conf`-файл AmneziaWG-сервера (получается из родного клиента AmneziaVPN или self-hosted)
+
+Поддерживается AmneziaWG вплоть до 3.1: обфускация `Jc/Jmin/Jmax`, `S1-S4`, `H1-H4`, `I1-I5`,
+header protection (`HeaderProtectionKey`) и диапазонные тайминги (`RekeyAfterTime = 100-120`,
+`PersistentKeepalive = 25-35` и т.п.). Диапазоны передаются в backend дословно — устройство
+само выбирает значение внутри интервала на каждом взводе таймера.
+
+> `HeaderProtectionKey` требует `S1`-`S4` не меньше 12, иначе backend не стартует.
+> Парсер предупреждает об этом при импорте профиля.
 
 ## Сборка
 
 ```sh
 # 1. Backend (Go → amnezia-box)
-backend/build.sh             # клонирует hoaxisr/amnezia-box (тег 1.12.12-awg) и собирает бинарник
+backend/build.sh             # клонирует hoaxisr/amnezia-box (пин на коммит ветки awg-1.14.0) и собирает бинарник
 FORCE=1 backend/build.sh     # переклонировать src
-REF=main backend/build.sh    # другой git ref
+REF=main backend/build.sh    # другой git ref (тег, ветка или sha)
 
 # 2. Privileged helper (Swift → awgroute-helper)
 helper/build.sh              # собирает helper и кладёт бинарь в helper/awgroute-helper
@@ -23,8 +31,9 @@ helper/build.sh              # собирает helper и кладёт бина�
 # 3. Приложение (Xcode)
 # Build phases вызывают helper/build.sh автоматически.
 xcodebuild -project app/AwgRoute.xcodeproj -scheme AwgRoute -configuration Release \
-           CODE_SIGN_IDENTITY="-"
-# Готовый .app: DerivedData/Build/Products/Release/AwgRoute.app
+           -derivedDataPath app/DerivedData CODE_SIGN_IDENTITY="-"
+# Готовый .app: app/DerivedData/Build/Products/Release/AwgRoute.app
+# Без -derivedDataPath Xcode кладёт результат в ~/Library/Developer/Xcode/DerivedData/AwgRoute-<hash>/
 ```
 
 ## Smoke-тест backend (без GUI)
@@ -80,11 +89,26 @@ AwgRoute.app
 {
   "rules": [
     { "domain_suffix": ["example.com"], "outbound": "direct" },
-    { "geoip": ["ru"], "outbound": "direct" }
+    { "rule_set": ["geoip-ru"], "outbound": "direct" }
+  ],
+  "rule_set": [
+    {
+      "type": "remote",
+      "tag": "geoip-ru",
+      "format": "binary",
+      "url": "https://github.com/SagerNet/sing-geoip/raw/rule-set/geoip-ru.srs",
+      "http_client": { "domain_resolver": { "server": "local" } },
+      "update_interval": "7d"
+    }
   ],
   "final": "vpn"
 }
 ```
+
+> **Важно:** поле `geoip` удалено в sing-box 1.12 — конфиг с ним не запустится
+> (`geoip database is deprecated ... and removed`). Используйте `rule_set` с `.srs`,
+> как в пресетах. У remote rule-set не указывайте `detour` в `http_client`:
+> `direct` в 1.12+ — не outbound, а route-action, и detour на него отвергается.
 
 Генератор автоматически добавляет `sniff` и `hijack-dns` в начало правил и выставляет `default_domain_resolver`.
 

@@ -11,7 +11,8 @@
       "tag": "geosite-category-ads-all",
       "format": "binary",
       "url": "https://github.com/SagerNet/sing-geosite/raw/rule-set/geosite-category-ads-all.srs",
-      "download_detour": "vpn"
+      "http_client": { "domain_resolver": { "server": "local" } },
+      "update_interval": "7d"
     }
   ],
   "final": "vpn"

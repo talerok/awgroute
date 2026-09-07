@@ -1,4 +1,5 @@
 import XCTest
+import AwgDomain
 @testable import AwgConfig
 
 final class AwgJSONGeneratorTests: XCTestCase {
@@ -51,14 +52,15 @@ final class AwgJSONGeneratorTests: XCTestCase {
         XCTAssertEqual(d["s2"] as? Int, 100)
         // s3 / s4 == 0 — см. testS3IsNotZeroIsKept
         XCTAssertEqual(d["h1"] as? String, "1")
-        XCTAssertEqual(d["i1"] as? String, "<b 0xf6><c><t><r 10>")
-        XCTAssertEqual(d["i2"] as? String, "<b 0x00 0x01><c><r 30>")
+        XCTAssertEqual(d["i1"] as? String, "<b 0xf6><t><r 10>")
+        XCTAssertEqual(d["i2"] as? String, "<b 0x00 0x01><r 30>")
         // Пустые I3-I5 → не в JSON
         XCTAssertNil(d["i3"])
 
         let peers = d["peers"] as! [[String: Any]]
         XCTAssertEqual(peers[0]["preshared_key"] as? String, "ZmFrZXByZXNoYXJlZGtleWZvcnRlc3RpbmcxMjM0NTY3ODkwYWE=")
-        XCTAssertEqual(peers[0]["persistent_keepalive_interval"] as? Int, 25)
+        // Строкой: backend (AwgKeepalive) принимает и число, и "min-max".
+        XCTAssertEqual(peers[0]["persistent_keepalive_interval"] as? String, "25")
         XCTAssertEqual(peers[0]["allowed_ips"] as? [String], ["0.0.0.0/0", "::/0"])
     }
 
@@ -231,5 +233,83 @@ final class AwgJSONGeneratorTests: XCTestCase {
         let peer = (d["peers"] as! [[String: Any]])[0]
         XCTAssertEqual(peer["address"] as? String, "2001:db8::1")
         XCTAssertEqual(peer["port"] as? Int, 51820)
+    }
+
+    // MARK: - Variant B: секция dns внутри rules.json
+
+    func testUserDNSSectionIsStrippedFromRoute() throws {
+        // Регрессия: rules.json = route + опциональная dns. Если dns утекала в route,
+        // sing-box отвергал ВЕСЬ конфиг: `route.dns: json: unknown field "dns"`.
+        let userRules: [String: Any] = [
+            "rules": [["domain_suffix": ["example.com"], "outbound": "direct"]],
+            "final": "vpn",
+            "dns": ["final": "remote"]
+        ]
+        let cfg = try AwgConfigParser.parse(Self.minimalConf)
+        let data = try AwgJSONGenerator.fullConfigJSON(
+            from: cfg,
+            userRoute: userRules,
+            userDNS: AwgJSONGenerator.userDNSSection(from: userRules)
+        )
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let route = try XCTUnwrap(root["route"] as? [String: Any])
+        XCTAssertNil(route["dns"], "секция dns не должна попадать в route")
+        let dns = try XCTUnwrap(root["dns"] as? [String: Any])
+        XCTAssertEqual(dns["final"] as? String, "remote", "dns из rules.json должна применяться")
+        XCTAssertNotNil(dns["servers"], "недостающие поля добираются из дефолтов")
+    }
+
+    func testUserDNSSectionExtraction() {
+        XCTAssertNil(AwgJSONGenerator.userDNSSection(from: nil))
+        XCTAssertNil(AwgJSONGenerator.userDNSSection(from: ["final": "vpn"]))
+        XCTAssertEqual(
+            AwgJSONGenerator.userDNSSection(from: ["dns": ["final": "remote"]])?["final"] as? String,
+            "remote"
+        )
+    }
+
+    private static let minimalConf = """
+    [Interface]
+    Address = 10.8.0.2/24
+    PrivateKey = aGVsbG93b3JsZGZha2Vwcml2YXRla2V5MTIzNDU2Nzg5MA==
+
+    [Peer]
+    PublicKey = ZmFrZXBlZXJwdWJsaWNrZXlmb3J0ZXN0aW5nMTIzNDU2Nzg5MA==
+    Endpoint = 198.51.100.10:51820
+    AllowedIPs = 0.0.0.0/0
+    """
+
+    // MARK: - AmneziaWG 3.x
+
+    func testAwg3FieldsInEndpointJSON() throws {
+        let cfg = try AwgConfigParser.parse("""
+        [Interface]
+        Address = 10.0.0.1/32
+        PrivateKey = abc
+        S1 = 643
+        S4 = 12
+        HeaderProtectionKey = ZmFrZWhlYWRlcnByb3RlY3Rpb25rZXktZm9yLXRlc3Rz
+        RekeyAfterTime = 100-120
+        ContentPaddingAddition = 10-100
+        MaxHandshakeAttempts = 15-20
+
+        [Peer]
+        PublicKey = def
+        Endpoint = 1.2.3.4:51820
+        AllowedIPs = 0.0.0.0/0
+        PersistentKeepalive = 25-35
+        """)
+        let d = AwgJSONGenerator.endpointDict(from: cfg, options: .init())
+        // base64 как в .conf — в hex переводит сам backend при сборке UAPI.
+        XCTAssertEqual(d["header_protection_key"] as? String, "ZmFrZWhlYWRlcnByb3RlY3Rpb25rZXktZm9yLXRlc3Rz")
+        XCTAssertEqual(d["rekey_after_time"] as? String, "100-120")
+        XCTAssertEqual(d["content_padding_addition"] as? String, "10-100")
+        XCTAssertEqual(d["max_handshake_attempts"] as? String, "15-20")
+        // Не заданные в .conf — не попадают в JSON.
+        XCTAssertNil(d["rekey_timeout"])
+        XCTAssertNil(d["reject_after_time"])
+        XCTAssertNil(d["keepalive_timeout"])
+        let peers = try XCTUnwrap(d["peers"] as? [[String: Any]])
+        XCTAssertEqual(peers[0]["persistent_keepalive_interval"] as? String, "25-35")
     }
 }

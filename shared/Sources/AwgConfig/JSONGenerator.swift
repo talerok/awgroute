@@ -1,4 +1,5 @@
 import Foundation
+import AwgDomain
 
 /// Генератор JSON для amnezia-box.
 ///
@@ -7,7 +8,7 @@ import Foundation
 /// - `fullConfigJSON(...)` — полный конфиг: log + dns + tun inbound + direct outbound +
 ///   AWG endpoint + route (sniff + hijack-dns + final) + experimental.clash_api.
 ///
-/// Имена JSON-полей строго по `option/awg.go` (см. DECISIONS.md).
+/// Имена JSON-полей строго по `option/awg.go` ветки `awg-1.14.0` (см. DECISIONS.md).
 public enum AwgJSONGenerator {
 
     public struct Options: Sendable {
@@ -25,12 +26,28 @@ public enum AwgJSONGenerator {
         public var tunMTU: UInt32 = 1376
         /// Адрес Clash API.
         public var clashAPIListen: String = "127.0.0.1:9090"
+        /// Токен для Clash API. Без него любой локальный процесс читает `/connections`
+        /// — то есть адреса назначения всего туннелируемого трафика — и может менять
+        /// роутинг через тот же контрольный API, которым пользуется приложение.
+        /// nil — поле не генерится (обратная совместимость и отладка вручную).
+        public var clashAPISecret: String? = nil
         /// Порядок: ipv4_only / prefer_ipv4 / etc.
         public var dnsStrategy: String = "ipv4_only"
         /// Локальный (системный) DNS — для bypass-доменов и default_domain_resolver.
         public var localDNSServer: String = "192.168.1.1"
         /// Удалённый DNS — для туннеля.
         public var remoteDNSServer: String = "1.1.1.1"
+        /// Путь к `experimental.cache_file`. Кеширует скачанные remote rule-set'ы.
+        ///
+        /// Без него sing-box качает каждый rule-set заново при КАЖДОМ старте, и любой
+        /// сетевой сбой валит туннель целиком: `RemoteRuleSet.StartContext` при
+        /// отсутствии кеша и `initial_path` идёт в `fetch`, а его ошибка фатальна
+        /// (`start service: initial rule-set: ...`). С кешем повторный старт
+        /// поднимается вообще без сети.
+        ///
+        /// Путь задаёт вызывающий: backend работает под root, и файл должен лечь
+        /// туда, где это безопасно. nil — секция не генерится.
+        public var cacheFilePath: String? = nil
         /// Native TUN режим: AWG сам поднимает системный utun, sing-box-роутинг
         /// отключён. Простой full-tunnel, как нативный AmneziaVPN-клиент.
         /// Используй, если smart-mode (с rules) не работает.
@@ -118,13 +135,21 @@ public enum AwgJSONGenerator {
             "outbounds": outbounds,
             "endpoints": [endpoint],
             "route": route,
-            "experimental": [
-                "clash_api": [
-                    "external_controller": options.clashAPIListen
-                ]
-            ]
+            "experimental": experimentalDict(options: options)
         ]
         return try serialize(root)
+    }
+
+    static func experimentalDict(options: Options) -> [String: Any] {
+        var clash: [String: Any] = ["external_controller": options.clashAPIListen]
+        if let secret = options.clashAPISecret, !secret.isEmpty {
+            clash["secret"] = secret
+        }
+        var experimental: [String: Any] = ["clash_api": clash]
+        if let path = options.cacheFilePath {
+            experimental["cache_file"] = ["enabled": true, "path": path]
+        }
+        return experimental
     }
 
     // MARK: - Native TUN mode
@@ -138,11 +163,7 @@ public enum AwgJSONGenerator {
         let root: [String: Any] = [
             "log": ["level": "info", "timestamp": true],
             "endpoints": [endpoint],
-            "experimental": [
-                "clash_api": [
-                    "external_controller": options.clashAPIListen
-                ]
-            ]
+            "experimental": experimentalDict(options: options)
         ]
         return try serialize(root)
     }
@@ -176,6 +197,16 @@ public enum AwgJSONGenerator {
         if let v = iface.i3         { endpoint["i3"] = v }
         if let v = iface.i4         { endpoint["i4"] = v }
         if let v = iface.i5         { endpoint["i5"] = v }
+        // ── AmneziaWG 3.x ──
+        // header_protection_key backend ждёт в base64 (в hex переводит сам при
+        // сборке UAPI). Тайминги — строкой "N" или "min-max".
+        if let v = iface.headerProtectionKey    { endpoint["header_protection_key"] = v }
+        if let v = iface.contentPaddingAddition { endpoint["content_padding_addition"] = v.description }
+        if let v = iface.rekeyAfterTime         { endpoint["rekey_after_time"] = v.description }
+        if let v = iface.rekeyTimeout           { endpoint["rekey_timeout"] = v.description }
+        if let v = iface.rejectAfterTime        { endpoint["reject_after_time"] = v.description }
+        if let v = iface.keepaliveTimeout       { endpoint["keepalive_timeout"] = v.description }
+        if let v = iface.maxHandshakeAttempts   { endpoint["max_handshake_attempts"] = v.description }
 
         endpoint["peers"] = config.peers.map { peer -> [String: Any] in
             var p: [String: Any] = [
@@ -185,7 +216,8 @@ public enum AwgJSONGenerator {
                 "allowed_ips": peer.allowedIPs
             ]
             if let psk = peer.presharedKey { p["preshared_key"] = psk }
-            if let ka  = peer.persistentKeepalive { p["persistent_keepalive_interval"] = ka }
+            // Строкой: backend (AwgKeepalive) принимает и число, и "min-max".
+            if let ka  = peer.persistentKeepalive { p["persistent_keepalive_interval"] = ka.description }
             return p
         }
         return endpoint
@@ -214,6 +246,11 @@ public enum AwgJSONGenerator {
     /// - проставляем `default_domain_resolver` если пользователь не указал
     static func mergedRoute(userRoute: [String: Any]?, options: Options) -> [String: Any] {
         var route: [String: Any] = userRoute ?? [:]
+        // rules.json — это секция `route` ПЛЮС опциональная `dns` (Variant B).
+        // `dns` разбирается отдельно в fullConfigJSON; если оставить её здесь, она
+        // уедет внутрь route и sing-box откажется грузить конфиг целиком:
+        //   FATAL decode config: route.dns: json: unknown field "dns"
+        for key in Self.nonRouteUserKeys { route.removeValue(forKey: key) }
 
         var rules = (route["rules"] as? [[String: Any]]) ?? []
         let hasSniff = rules.contains { ($0["action"] as? String) == "sniff" }
@@ -251,6 +288,15 @@ public enum AwgJSONGenerator {
             route["auto_detect_interface"] = true
         }
         return route
+    }
+
+    /// Ключи верхнего уровня rules.json, которые НЕ являются частью секции `route`.
+    /// Обрабатываются отдельно и должны быть вырезаны перед сборкой route.
+    static let nonRouteUserKeys: Set<String> = ["dns"]
+
+    /// Достаёт из пользовательского rules.json секцию `dns` (Variant B), если она есть.
+    public static func userDNSSection(from userRules: [String: Any]?) -> [String: Any]? {
+        userRules?["dns"] as? [String: Any]
     }
 
     private static func serialize(_ obj: [String: Any]) throws -> Data {

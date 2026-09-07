@@ -5,13 +5,17 @@
 # Usage:
 #   backend/build.sh            # обычная сборка
 #   FORCE=1 backend/build.sh    # переклонировать src даже если уже есть
-#   REF=awg2.0 backend/build.sh # явный git ref (тег/ветка/коммит)
+#   REF=<sha> backend/build.sh  # явный git ref (тег/ветка/коммит)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_URL="${REPO_URL:-https://github.com/hoaxisr/amnezia-box.git}"
-REF="${REF:-1.12.12-awg}"
+# Пин на КОММИТ, а не на ветку awg-1.14.0: ветка движется, и сборка перестала бы
+# быть воспроизводимой. Это первый ref с amneziawg-go/v3 — то есть с AmneziaWG 3.1
+# (header protection, диапазоны таймингов). Схема endpoint'а в option/awg.go —
+# источник правды для AwgJSONGenerator.
+REF="${REF:-0b3dfaab51561c3d90432d29d3c192018c400138}"
 SRC_DIR="${SCRIPT_DIR}/src"
 OUT_BIN="${SCRIPT_DIR}/amnezia-box"
 
@@ -21,7 +25,12 @@ fi
 
 if [[ ! -d "${SRC_DIR}/.git" ]]; then
   echo ">> Cloning ${REPO_URL}@${REF} -> ${SRC_DIR}"
-  git clone --depth 1 --branch "${REF}" "${REPO_URL}" "${SRC_DIR}"
+  # По коммиту `--branch` не работает, поэтому fetch конкретного sha.
+  # Для тега/ветки этот же путь тоже корректен.
+  git init -q "${SRC_DIR}"
+  git -C "${SRC_DIR}" remote add origin "${REPO_URL}"
+  git -C "${SRC_DIR}" fetch -q --depth 1 origin "${REF}"
+  git -C "${SRC_DIR}" checkout -q FETCH_HEAD
 else
   echo ">> Reusing existing src in ${SRC_DIR} (use FORCE=1 to re-clone)"
 fi
@@ -47,10 +56,12 @@ TAGS="with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_cl
 
 cd "${SRC_DIR}"
 echo ">> Building with tags: ${TAGS}"
+# Без -X версия печатается как "unknown" (мы собираем не с тега).
+VERSION="$(git -C "${SRC_DIR}" describe --tags --always 2>/dev/null || echo "${REF}")"
 CGO_ENABLED=1 "${GO_BIN}" build \
   -tags "${TAGS}" \
   -trimpath \
-  -ldflags "-s -w" \
+  -ldflags "-s -w -X github.com/sagernet/sing-box/constant.Version=${VERSION}" \
   -o "${OUT_BIN}" \
   ./cmd/sing-box
 

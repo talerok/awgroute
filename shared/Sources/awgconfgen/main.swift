@@ -1,4 +1,5 @@
 import Foundation
+import AwgDomain
 import AwgConfig
 
 // Использование:
@@ -48,16 +49,21 @@ do {
     for w in cfg.warnings {
         FileHandle.standardError.write(Data("warning: \(w)\n".utf8))
     }
+    // rules.json = секция route + опциональная секция dns. Разбираем ровно так же,
+    // как ConnectionCoordinator, иначе CLI генерит не то, что приложение, и отладка
+    // «у меня в awgconfgen работает» уводит в сторону.
     var userRoute: [String: Any]? = nil
+    var userDNS: [String: Any]? = nil
     if let p = rulesPath {
         let rd = try Data(contentsOf: URL(fileURLWithPath: p))
         userRoute = try JSONSerialization.jsonObject(with: rd) as? [String: Any]
+        userDNS = AwgJSONGenerator.userDNSSection(from: userRoute)
     }
     var opts = AwgJSONGenerator.Options()
     opts.useNativeTunMode = nativeTun
     let json = endpointOnly
         ? try AwgJSONGenerator.endpointJSON(from: cfg, options: opts)
-        : try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts, userRoute: userRoute)
+        : try AwgJSONGenerator.fullConfigJSON(from: cfg, options: opts, userRoute: userRoute, userDNS: userDNS)
     FileHandle.standardOutput.write(json)
     FileHandle.standardOutput.write(Data("\n".utf8))
 } catch {

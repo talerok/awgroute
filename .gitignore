@@ -1,13 +1,16 @@
+# Мусор от инструментов
+.playwright-mcp/
+*.dmg
+dmg-content/
+
 # Build artifacts
 backend/amnezia-box
-helper/awgroute-helper
+engine/awgroute-engine
 backend/.cache/
 backend/src/
-dist/
 
 # Real configs/keys — never commit
 *.real.conf
-tests/conf-samples/*.real.conf
 tests/configs/*.real.json
 active-config.json
 

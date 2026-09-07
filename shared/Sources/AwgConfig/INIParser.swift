@@ -1,4 +1,5 @@
 import Foundation
+import AwgDomain
 
 /// Минимальный INI-парсер под формат WireGuard `.conf`.
 ///
@@ -20,18 +21,31 @@ struct INIParser {
         var sections: [Section] = []
         var currentSection: Section? = nil
 
-        // Split on \n and \r individually. CRLF files (\r\n) produce an extra
-        // empty element between the two separators, which is harmlessly skipped below.
-        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r" })
+        // Нормализуем переводы строк ДО разбиения. В Swift "\r\n" — это ОДИН Character
+        // (grapheme cluster), не равный ни "\n", ни "\r". Поэтому прежний предикат
+        // `$0 == "\n" || $0 == "\r"` на CRLF-файле не находил ни одного разделителя:
+        // весь файл считался одной строкой и парсер падал на missingSection("Interface").
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")   // старый Mac-стиль
+        let lines = normalized.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" })
         for (idx, raw) in lines.enumerated() {
-            let line = raw.trimmingCharacters(in: .whitespaces)
+            let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if line.isEmpty { continue }
             if line.hasPrefix("#") || line.hasPrefix(";") { continue }
 
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 if let s = currentSection { sections.append(s) }
                 let name = String(line.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
-                currentSection = Section(name: name, entries: [])
+                // Повторная секция с тем же именем (кроме [Peer], который по формату
+                // повторяется законно) — доливаем записи в уже собранную, а не заводим
+                // вторую. Иначе второй [Interface] молча затирал первый в AwgConfigParser.
+                if name.lowercased() != "peer",
+                   let idx = sections.firstIndex(where: { $0.name.lowercased() == name.lowercased() }) {
+                    currentSection = sections.remove(at: idx)
+                } else {
+                    currentSection = Section(name: name, entries: [])
+                }
                 continue
             }
 

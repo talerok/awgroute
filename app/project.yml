@@ -19,6 +19,11 @@ settings:
 packages:
   AwgRouteShared:
     path: ../shared
+  # Слои приложения отдельными таргетами: AwgPresentation не линкует
+  # AwgInfrastructure, поэтому нарушение направления зависимостей теперь
+  # ошибка компиляции, а не то, что ловится греппом.
+  AwgApp:
+    path: Modules
 
 targets:
   AwgRoute:
@@ -38,28 +43,28 @@ targets:
       - path: ../backend/amnezia-box
         optional: true
         buildPhase: resources
-      # Helper-бинарь копируется в AwgRoute.app/Contents/Library/LaunchServices/awgroute-helper.
-      # Это стандартное место для privileged helper'ов в .app-bundle. Установщик
-      # (HelperInstaller.swift) копирует оттуда в /Library/PrivilegedHelperTools/.
-      - path: ../helper/awgroute-helper
+      # Бинарь движка копируется в AwgRoute.app/Contents/Library/LaunchServices/awgroute-engine.
+      # Это стандартное место для привилегированного демона'ов в .app-bundle. Установщик
+      # (EngineInstaller.swift) копирует оттуда в /Library/PrivilegedHelperTools/.
+      - path: ../engine/awgroute-engine
         optional: true
         buildPhase:
           copyFiles:
             destination: wrapper
             subpath: Contents/Library/LaunchServices
       # Plist-template идёт в Resources — установщик читает и подставляет owner.
-      - path: ../helper/com.awgroute.helper.plist.template
+      - path: ../engine/dev.awgroute.engine.plist.template
         buildPhase: resources
     preBuildScripts:
-      - name: Build awgroute-helper
-        # Собирает helper-бинарь до того, как Xcode попытается его скопировать в bundle.
+      - name: Build awgroute-engine
+        # Собирает бинарь движка до того, как Xcode попытается его скопировать в bundle.
         # outputFiles даёт Xcode'у знание о produced artifact для инкрементальных билдов.
         script: |
           set -euo pipefail
-          cd "${SRCROOT}/../helper"
+          cd "${SRCROOT}/../engine"
           ./build.sh
         outputFiles:
-          - $(SRCROOT)/../helper/awgroute-helper
+          - $(SRCROOT)/../engine/awgroute-engine
     info:
       path: Sources/Info.plist
       properties:
@@ -74,6 +79,14 @@ targets:
     dependencies:
       - package: AwgRouteShared
         product: AwgConfig
+      - package: AwgRouteShared
+        product: AwgDomain
+      - package: AwgRouteShared
+        product: AwgProtocol
+      - package: AwgApp
+        product: AwgInfrastructure
+      - package: AwgApp
+        product: AwgPresentation
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.awgroute.app
