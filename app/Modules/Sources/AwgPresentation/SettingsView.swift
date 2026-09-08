@@ -2,112 +2,87 @@ import SwiftUI
 import AwgDomain
 
 public struct SettingsView: View {
+
     @EnvironmentObject var tunnel: TunnelStore
-    @EnvironmentObject var installerBox: EngineInstallerBox
-    @State private var isInstalled: Bool = false
-    @State private var isWorking: Bool = false
-    @State private var lastError: String?
-    @State private var lastSuccess: String?
+    @EnvironmentObject var engine: EngineStore
+
+    public init() {}
 
     public var body: some View {
         Form {
             Section {
                 LabeledContent("Status") {
-                    Text(isInstalled ? "Enabled" : "Disabled")
-                        .foregroundStyle(isInstalled ? .green : .secondary)
-                }
-
-                if isInstalled {
-                    Button("Disable silent reconnect", role: .destructive) {
-                        Task { await disable() }
-                    }
-                    .disabled(isWorking)
-                } else {
-                    Button("Enable silent reconnect…") {
-                        Task { await enable() }
-                    }
-                    .disabled(isWorking)
-                }
-
-                if isWorking {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Working…").foregroundStyle(.secondary).font(.caption)
+                        Circle()
+                            .fill(engine.health.state.isHealthy ? Color.green
+                                  : engine.isInstalled ? .red : .secondary)
+                            .frame(width: 8, height: 8)
+                        Text(engine.health.state.title)
+                            .foregroundStyle(engine.health.state.isHealthy ? .green : .primary)
                     }
                 }
-                if let err = lastError {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
+
+                if let detail = engine.health.state.detail {
+                    LabeledContent("Details") {
+                        Text(detail)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
-                if let ok = lastSuccess {
-                    Text(ok)
-                        .font(.caption)
-                        .foregroundStyle(.green)
+
+                HStack {
+                    if engine.isInstalled {
+                        // Перезапуск, а не «убить»: движок выходит чисто, а KeepAlive
+                        // поднимает его только после падения — после простой остановки
+                        // приложение осталось бы без движка до переустановки.
+                        Button("Restart engine") { Task { await engine.restart() } }
+                            .disabled(engine.isBusy)
+                            .help("Перезапустить демон через launchd. Туннель переживёт: движок подхватит его обратно.")
+
+                        Button("Remove engine", role: .destructive) {
+                            Task { await removeEngine() }
+                        }
+                        .disabled(engine.isBusy)
+                    } else {
+                        Button("Install engine…") { Task { await engine.install() } }
+                            .disabled(engine.isBusy)
+                    }
+
+                    if engine.isBusy {
+                        ProgressView().controlSize(.small).padding(.leading, 4)
+                    }
+                }
+
+                if let error = engine.lastError {
+                    Text(error)
+                        .font(.caption).foregroundStyle(.red).textSelection(.enabled)
                 }
             } header: {
-                Text("Silent reconnect")
+                Text("Engine")
             } footer: {
                 Text("""
-                Installs a small privileged helper that lets AwgRoute reconnect after sleep/wake or network changes without prompting for your password every time.
+                Движок — привилегированный демон, который владеет процессом backend'а \
+                и системным DNS. Он работает постоянно, независимо от приложения, \
+                и подхватывает туннель обратно после собственного перезапуска.
 
-                You'll be asked for your admin password once during install. The helper runs as a launchd daemon under `/Library/LaunchDaemons/`. Click "Disable" to remove it completely.
+                Установка запрашивает пароль администратора один раз. Удаление снимает \
+                демон целиком: автоматическое переподключение после сна и смены сети \
+                перестанет работать.
                 """)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 480, minHeight: 240)
-        .onAppear { refreshState() }
+        .frame(minWidth: 480, minHeight: 280)
+        .task { await engine.refresh() }
     }
 
-    // MARK: - Actions
-
-    private func enable() async {
-        isWorking = true
-        lastError = nil
-        lastSuccess = nil
-        do {
-            try await installerBox.installer.install()
-            // Пользователь явно нажал Enable — сбрасываем "declined" флаг, чтобы при
-            // следующем запуске auto-install опять работал (если helper будет удалён
-            // через uninstall).
-            installerBox.installer.userDeclined = false
-            lastSuccess = "Helper installed. Reconnects will be silent from now on."
-        } catch is CancellationError {
-            // Молча — пользователь отменил, это нормальный сценарий.
-        } catch {
-            lastError = "\(error)"
-        }
-        refreshState()
-        isWorking = false
-    }
-
-    private func disable() async {
-        isWorking = true
-        lastError = nil
-        lastSuccess = nil
-        // Сначала гасим туннель. Backend спавнится с SETSID и переживает bootout
-        // helper'а, а DNS-override снимается только в handleStop — без этого
-        // оставался бы root-процесс с подменённым системным DNS и без способа
-        // это снять из приложения.
+    /// Удаление демона при живом туннеле оставило бы root-процесс с подменённым
+    /// системным DNS и без способа его снять из приложения.
+    private func removeEngine() async {
         if tunnel.status.isRunning { await tunnel.disconnect() }
-        do {
-            try await installerBox.installer.uninstall()
-            lastSuccess = "Helper removed."
-        } catch is CancellationError {
-            // тихо
-        } catch {
-            lastError = "\(error)"
-        }
-        refreshState()
-        isWorking = false
-    }
-
-    private func refreshState() {
-        isInstalled = installerBox.installer.isInstalled
+        await engine.uninstall()
     }
 }

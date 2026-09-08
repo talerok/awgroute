@@ -12,6 +12,9 @@ final class CommandDispatcher {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
+    /// Момент запуска движка — чтобы отдавать uptime в `status`.
+    private let startedAt = Date()
+
     init(session: TunnelSession) {
         self.session = session
     }
@@ -47,7 +50,12 @@ final class CommandDispatcher {
 
         switch request.command {
         case .status:
-            return Outcome(response: encode(.init(ok: true, state: session.state())), subscribe: false)
+            let info = EngineProtocol.Info(
+                pid: getpid(),
+                uptime: Int(Date().timeIntervalSince(startedAt))
+            )
+            return Outcome(response: encode(.init(ok: true, state: session.state(), engine: info)),
+                           subscribe: false)
 
         case .stop:
             return Outcome(response: encode(.init(ok: true, state: session.stop())), subscribe: false)

@@ -189,36 +189,14 @@ public enum EngineInstaller {
 
     // MARK: - Private
 
+    /// Установка и удаление идут через общий AdminShell: тот же один промпт пароля.
     private static func runAsAdmin(_ bash: String) async throws {
-        let escaped = bash
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        let script = """
-        do shell script "\(escaped)" with administrator privileges
-        """
-
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            // AppleScript с GUI-промптом не должен выполняться на main thread.
-            DispatchQueue.global(qos: .userInitiated).async {
-                var err: NSDictionary?
-                guard let appleScript = NSAppleScript(source: script) else {
-                    cont.resume(throwing: InstallError.scriptFailed("NSAppleScript init failed"))
-                    return
-                }
-                _ = appleScript.executeAndReturnError(&err)
-                if let err = err {
-                    // -128 = errAEEventCanceled — пользователь нажал Cancel в диалоге пароля.
-                    let code = err[NSAppleScript.errorNumber] as? Int ?? 0
-                    if code == -128 {
-                        cont.resume(throwing: InstallError.userCancelled)
-                    } else {
-                        let msg = err[NSAppleScript.errorMessage] as? String ?? "code=\(code)"
-                        cont.resume(throwing: InstallError.scriptFailed(msg))
-                    }
-                } else {
-                    cont.resume(returning: ())
-                }
-            }
+        do {
+            try await AdminShell.run(bash)
+        } catch AdminShell.Failure.cancelled {
+            throw InstallError.userCancelled
+        } catch AdminShell.Failure.scriptFailed(let message) {
+            throw InstallError.scriptFailed(message)
         }
     }
 

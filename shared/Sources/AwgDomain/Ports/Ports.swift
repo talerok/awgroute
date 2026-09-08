@@ -115,10 +115,16 @@ public protocol ConfigParsing: Sendable {
 }
 
 /// Источник строк лога backend'а для UI.
+///
+/// Следование за файлом и разовое чтение хвоста разделены намеренно: следить имеет
+/// смысл только пока backend пишет, а показать историю прошлой сессии нужно и при
+/// выключенном туннеле. Раньше это было одним бесконечным циклом, который опрашивал
+/// файл каждые 200 мс вне зависимости от того, есть ли кому в него писать.
 public protocol LogSource: Sendable {
-    /// Поток строк. Завершается при отмене задачи-потребителя.
-    func lines() -> AsyncStream<String>
-    func start()
+    /// Поток новых строк. Завершается при отмене задачи-потребителя.
+    func follow() -> AsyncStream<String>
+    /// Разовый снимок хвоста — история без подписки.
+    func recentTail() -> [String]
     /// Последняя строка FATAL из хвоста — причина падения вместо абстрактного «exited».
     func lastFatal() -> String?
 }
@@ -141,6 +147,31 @@ public protocol PowerMonitoring: Sendable {
 /// Есть ли вообще бинарь backend'а.
 public protocol BackendAvailability: Sendable {
     var isBackendPresent: Bool { get }
+}
+
+/// Что известно о самом движке — для диагностики в UI.
+public struct EngineHealth: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        case notInstalled
+        /// Сокет есть, но движок не отвечает — завис либо не поднялся.
+        case unreachable(String)
+        case running(pid: Int32, uptime: Int, version: Int)
+        /// Версия протокола не совпала: нужен апгрейд.
+        case incompatible(String)
+    }
+    public let state: State
+
+    public init(state: State) { self.state = state }
+}
+
+/// Диагностика и перезапуск движка.
+///
+/// Отдельно от установки: «переустановить демон» и «перезапустить зависший» —
+/// разные операции с разной ценой. Полное удаление остаётся за `EngineInstalling`.
+public protocol EngineControlling: Sendable {
+    func health() async -> EngineHealth
+    /// Перезапуск через launchd. Требует прав администратора.
+    func restart() async throws
 }
 
 /// Установка привилегированного движка.

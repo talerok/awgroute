@@ -19,7 +19,12 @@ import Foundation
 public enum EngineProtocol {
 
     /// Поднимать при каждом несовместимом изменении команд, ответов или событий.
-    public static let version = 2
+    ///
+    /// v3: в ответ на `status` добавлены сведения о самом движке (`Info`). Формально
+    /// поле опционально, но молча жить с двумя разными формами ответа под одной
+    /// версией — ровно та беда, ради которой версия и заведена: клиент не смог бы
+    /// отличить «движок старый» от «движок сломан».
+    public static let version = 3
 
     // MARK: - Имена и пути
 
@@ -94,17 +99,37 @@ public enum EngineProtocol {
         case failed(reason: String)
     }
 
+    /// Сведения о самом движке — для диагностики из UI.
+    ///
+    /// Раньше о движке нельзя было узнать ничего, кроме «сокет существует»:
+    /// разбираться, жив ли он и давно ли, приходилось через `ps` в терминале.
+    public struct Info: Codable, Equatable, Sendable {
+        public var pid: Int32
+        /// Секунд с момента запуска движка.
+        public var uptime: Int
+        public var version: Int
+
+        public init(pid: Int32, uptime: Int, version: Int = EngineProtocol.version) {
+            self.pid = pid
+            self.uptime = uptime
+            self.version = version
+        }
+    }
+
     public struct Response: Codable, Sendable {
         public var protocolVersion: Int
         public var ok: Bool
         public var state: State?
         public var error: String?
+        /// Заполняется на `status`. Опционально: старые движки поля не пришлют.
+        public var engine: Info?
 
-        public init(ok: Bool, state: State? = nil, error: String? = nil) {
+        public init(ok: Bool, state: State? = nil, error: String? = nil, engine: Info? = nil) {
             self.protocolVersion = EngineProtocol.version
             self.ok = ok
             self.state = state
             self.error = error
+            self.engine = engine
         }
     }
 

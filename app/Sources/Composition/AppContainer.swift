@@ -19,7 +19,8 @@ final class AppContainer {
     let logs: LogViewModel
     let telemetry: Telemetry
     let supervisor: TunnelSupervisor
-    let engineInstaller: EngineInstalling
+    let engine: EngineStore
+    let installer: EngineInstalling
 
     private let paths = AppPaths.shared
 
@@ -50,8 +51,8 @@ final class AppContainer {
         let disconnect = DisconnectTunnel(gateway: gateway)
 
         // ── Наблюдаемое состояние ──
-        self.engineInstaller = installer
-        self.logs = LogViewModel(source: logSource, fileURL: paths.backendLogURL)
+        self.installer = installer
+        self.engine = EngineStore(control: EngineControl(), installer: installer)
         self.telemetry = Telemetry(source: ClashAPI(secrets: clashSecrets))
         self.rules = RulesStore(repository: rulesRepo, renderer: renderer)
         self.profiles = ProfileStore(
@@ -64,10 +65,18 @@ final class AppContainer {
             gateway: gateway,
             connect: connect,
             disconnect: disconnect,
-            logs: logSource,
             availability: BundledBackendAvailability()
         )
         self.tunnel = tunnel
+
+        // Панель логов сама решает, когда следить за файлом: пока туннель поднят,
+        // плюс пауза на предсмертный залп backend'а. Правило целиком внутри неё,
+        // здесь только связывание.
+        self.logs = LogViewModel(
+            source: logSource,
+            fileURL: paths.backendLogURL,
+            statusUpdates: { [weak tunnel] in tunnel?.statusUpdates() ?? AsyncStream { $0.finish() } }
+        )
 
         self.supervisor = TunnelSupervisor(
             tunnel: tunnel,

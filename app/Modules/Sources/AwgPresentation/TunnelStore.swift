@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import AwgDomain
 
 /// Состояние туннеля для UI.
@@ -15,25 +16,36 @@ public final class TunnelStore: ObservableObject {
     private let gateway: TunnelGateway
     private let connectTunnel: ConnectTunnel
     private let disconnectTunnel: DisconnectTunnel
-    private let logs: LogSource
     private var eventTask: Task<Void, Never>?
 
     public init(
         gateway: TunnelGateway,
         connect: ConnectTunnel,
         disconnect: DisconnectTunnel,
-        logs: LogSource,
         availability: BackendAvailability
     ) {
         self.gateway = gateway
         self.connectTunnel = connect
         self.disconnectTunnel = disconnect
-        self.logs = logs
         self.backendAvailable = availability.isBackendPresent
         subscribeToEngine()
     }
 
     deinit { eventTask?.cancel() }
+
+    /// Поток состояний для тех, кому нужно реагировать на переходы, — сейчас это
+    /// панель логов, которая по нему решает, следить ли за файлом.
+    public nonisolated func statusUpdates() -> AsyncStream<TunnelStatus> {
+        AsyncStream { continuation in
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return continuation.finish() }
+                continuation.yield(self.status)
+                for await value in self.$status.values { continuation.yield(value) }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 
     // MARK: - Команды
 
@@ -70,7 +82,6 @@ public final class TunnelStore: ObservableObject {
     private func run(profile: Profile?, mode: ConnectTunnel.Mode) async {
         guard !status.isTransitioning else { return }
         status = .starting
-        logs.start()
         do {
             status = try await connectTunnel(profile: profile, mode: mode)
             subscribeToEngine()

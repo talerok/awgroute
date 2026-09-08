@@ -33,14 +33,14 @@ struct AwgRouteApp: App {
                 .environmentObject(tunnel)
                 .environmentObject(logs)
                 .environmentObject(telemetry)
-                .environmentObject(EngineInstallerBox(container.engineInstaller))
+                .environmentObject(container.engine)
                 .frame(minWidth: 820, minHeight: 560)
                 .onAppear {
                     appDelegate.tunnel = tunnel
                     menuBar.install(tunnel: tunnel, profiles: profiles)
                     appDelegate.bindTelemetry(tunnel: tunnel, telemetry: telemetry)
                     container.supervisor.start()
-                    Task { await container.engineInstaller.installOnFirstLaunchIfNeeded() }
+                    Task { await container.installer.installOnFirstLaunchIfNeeded() }
                 }
         }
         .windowResizability(.contentSize)

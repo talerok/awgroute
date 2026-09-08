@@ -17,8 +17,42 @@ public final class FileLogSource: LogSource, @unchecked Sendable {
 
     deinit { rotationTask?.cancel() }
 
-    public func start() {
+    /// Следование начинается вместе с ротацией и заканчивается вместе с потоком:
+    /// пока никто не читает, фоновых таймеров нет вообще.
+    public func follow() -> AsyncStream<String> {
         rotateIfNeeded()
+        startRotationTimer()
+        return AsyncStream { continuation in
+            let task = Task.detached(priority: .utility) { [fileURL] in
+                await LogTailer.tail(file: fileURL) { continuation.yield($0) }
+                continuation.finish()
+            }
+            continuation.onTermination = { [weak self] _ in
+                task.cancel()
+                self?.stopRotationTimer()
+            }
+        }
+    }
+
+    /// Хвост файла разово — чтобы показать историю прошлой сессии, не подписываясь.
+    public func recentTail(maxBytes: Int = 64 * 1024) -> [String] {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return [] }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        let tail = UInt64(min(Int(size), maxBytes))
+        try? handle.seek(toOffset: size - tail)
+        guard let data = try? handle.read(upToCount: Int(tail)) else { return [] }
+        var lines = String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        // Первая строка почти наверняка обрезана посередине.
+        if size > tail, !lines.isEmpty { lines.removeFirst() }
+        return lines
+    }
+
+    public func recentTail() -> [String] { recentTail(maxBytes: 64 * 1024) }
+
+    private func startRotationTimer() {
+        rotationLock.lock(); defer { rotationLock.unlock() }
         guard rotationTask == nil else { return }
         rotationTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -28,14 +62,10 @@ public final class FileLogSource: LogSource, @unchecked Sendable {
         }
     }
 
-    public func lines() -> AsyncStream<String> {
-        AsyncStream { continuation in
-            let task = Task.detached(priority: .utility) { [fileURL] in
-                await LogTailer.tail(file: fileURL) { continuation.yield($0) }
-                continuation.finish()
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+    private func stopRotationTimer() {
+        rotationLock.lock(); defer { rotationLock.unlock() }
+        rotationTask?.cancel()
+        rotationTask = nil
     }
 
     public func lastFatal() -> String? {
